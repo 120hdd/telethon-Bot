@@ -1,0 +1,43 @@
+[Unit]
+Description=SajadBot Telegram queue worker
+Documentation=file:///opt/sajadbot/docs-fa.html
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+User=sajadbot
+Group=sajadbot
+WorkingDirectory=/opt/sajadbot
+EnvironmentFile=/etc/sajadbot/sajadbot.env
+Environment=HOME=/var/lib/sajadbot
+Environment=PYTHONUNBUFFERED=1
+Environment=PYTHONDONTWRITEBYTECODE=1
+ExecStart=/opt/sajadbot/.venv/bin/python /opt/sajadbot/run.py start
+Restart=on-failure
+RestartSec=10s
+TimeoutStopSec=45s
+KillSignal=SIGTERM
+UMask=0077
+
+# The service only needs outbound network access and write access to its state/log directories.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+RestrictRealtime=true
+CapabilityBoundingSet=
+AmbientCapabilities=
+ReadWritePaths=/var/lib/sajadbot /var/log/sajadbot
+StateDirectory=sajadbot
+StateDirectoryMode=0700
+LogsDirectory=sajadbot
+LogsDirectoryMode=0700
+
+[Install]
+WantedBy=multi-user.target

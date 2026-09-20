@@ -1,0 +1,1356 @@
+<!doctype html>
+<html lang="fa" dir="rtl" data-theme="light">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="راهنمای فارسی نصب SajadBot روی ویندوز و Ubuntu Server، پیکربندی systemd و کار با صف ارسال تلگرام.">
+  <meta name="theme-color" content="#f3efe5">
+  <title>راهنمای راه‌اندازی SajadBot</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --paper: #f3efe5;
+      --paper-2: #e9e2d3;
+      --surface: #faf7f0;
+      --ink: #17211f;
+      --muted: #66706c;
+      --line: #cbc4b6;
+      --line-strong: #8e948d;
+      --accent: #087f8c;
+      --accent-strong: #005d67;
+      --accent-soft: #cfe8e7;
+      --signal: #df6c36;
+      --signal-soft: #f3d7c8;
+      --ok: #397454;
+      --warn: #9a5c13;
+      --danger: #a43d35;
+      --code: #14201e;
+      --code-ink: #e9f2ed;
+      --shadow: 0 18px 55px rgba(38, 46, 43, 0.10);
+      --radius: 18px;
+      --font: "Segoe UI Variable", "Noto Sans Arabic", "Segoe UI", Tahoma, sans-serif;
+      --mono: "Cascadia Code", "SFMono-Regular", Consolas, monospace;
+    }
+
+    html[data-theme="dark"] {
+      color-scheme: dark;
+      --paper: #111715;
+      --paper-2: #18201d;
+      --surface: #1c2522;
+      --ink: #edf3ef;
+      --muted: #a6b1ac;
+      --line: #34413d;
+      --line-strong: #68766f;
+      --accent: #55bcc4;
+      --accent-strong: #8dd7dc;
+      --accent-soft: #173d3f;
+      --signal: #ed8a5c;
+      --signal-soft: #4d2c20;
+      --ok: #7fc39b;
+      --warn: #f0b665;
+      --danger: #f19188;
+      --code: #0a100e;
+      --code-ink: #e9f2ed;
+      --shadow: 0 18px 55px rgba(0, 0, 0, 0.28);
+    }
+
+    *, *::before, *::after { box-sizing: border-box; }
+
+    html {
+      scroll-behavior: smooth;
+      scroll-padding-top: 28px;
+    }
+
+    body {
+      margin: 0;
+      min-width: 320px;
+      background:
+        linear-gradient(var(--line) 1px, transparent 1px),
+        linear-gradient(90deg, var(--line) 1px, transparent 1px),
+        var(--paper);
+      background-size: 32px 32px;
+      color: var(--ink);
+      font-family: var(--font);
+      line-height: 1.9;
+      transition: background-color 180ms ease, color 180ms ease;
+    }
+
+    body::before {
+      content: "";
+      position: fixed;
+      inset: 0;
+      z-index: -1;
+      pointer-events: none;
+      background: linear-gradient(90deg, color-mix(in srgb, var(--paper) 92%, transparent), transparent 45%, color-mix(in srgb, var(--paper) 94%, transparent));
+    }
+
+    a { color: var(--accent-strong); }
+
+    a:hover { text-decoration-thickness: 2px; }
+
+    button, input { font: inherit; }
+
+    code, kbd, pre { font-family: var(--mono); direction: ltr; }
+
+    :focus-visible {
+      outline: 3px solid color-mix(in srgb, var(--accent) 70%, transparent);
+      outline-offset: 3px;
+    }
+
+    .skip-link {
+      position: fixed;
+      inset-block-start: 12px;
+      inset-inline-start: 12px;
+      z-index: 100;
+      padding: 8px 14px;
+      border-radius: 10px;
+      background: var(--ink);
+      color: var(--paper);
+      transform: translateY(-160%);
+    }
+
+    .skip-link:focus { transform: translateY(0); }
+
+    .scroll-progress {
+      position: fixed;
+      inset: 0 0 auto;
+      z-index: 90;
+      height: 4px;
+      background: var(--line);
+    }
+
+    .scroll-progress span {
+      display: block;
+      width: 0;
+      height: 100%;
+      background: var(--signal);
+    }
+
+    .topbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      max-width: 1440px;
+      margin: 0 auto;
+      padding: 22px 28px 10px;
+    }
+
+    .brand {
+      display: inline-flex;
+      align-items: center;
+      gap: 11px;
+      color: var(--ink);
+      font-weight: 760;
+      text-decoration: none;
+      letter-spacing: -0.02em;
+    }
+
+    .brand-mark {
+      display: grid;
+      width: 34px;
+      height: 34px;
+      place-items: center;
+      border: 1px solid var(--ink);
+      border-radius: 50% 50% 50% 10%;
+      background: var(--accent);
+      color: #fff;
+      box-shadow: 4px 4px 0 var(--ink);
+    }
+
+    .brand-mark svg { width: 18px; }
+
+    .top-actions { display: flex; align-items: center; gap: 8px; }
+
+    .icon-button {
+      display: inline-flex;
+      min-width: 42px;
+      min-height: 42px;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      border: 1px solid var(--line-strong);
+      border-radius: 999px;
+      background: var(--surface);
+      color: var(--ink);
+      cursor: pointer;
+      transition: transform 140ms ease, background-color 140ms ease;
+    }
+
+    .icon-button:hover { transform: translateY(-2px); background: var(--accent-soft); }
+    .icon-button svg { width: 18px; height: 18px; }
+
+    .page-shell {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 250px;
+      gap: clamp(28px, 5vw, 76px);
+      max-width: 1440px;
+      margin: 0 auto;
+      padding: 18px 28px 96px;
+    }
+
+    main { min-width: 0; }
+
+    .side-nav {
+      position: sticky;
+      inset-block-start: 24px;
+      align-self: start;
+      max-height: calc(100vh - 48px);
+      overflow: auto;
+      border-inline-start: 1px solid var(--line);
+      padding-inline-start: 22px;
+      scrollbar-width: thin;
+    }
+
+    .side-nav-label {
+      margin: 0 0 12px;
+      color: var(--muted);
+      font-size: 0.72rem;
+      font-weight: 800;
+      letter-spacing: 0.11em;
+    }
+
+    .side-nav ol { margin: 0; padding: 0; list-style: none; }
+
+    .side-nav a {
+      display: grid;
+      grid-template-columns: 26px 1fr;
+      gap: 8px;
+      align-items: baseline;
+      padding: 7px 0;
+      color: var(--muted);
+      font-size: 0.88rem;
+      text-decoration: none;
+      transition: color 140ms ease, transform 140ms ease;
+    }
+
+    .side-nav a::before {
+      content: attr(data-step);
+      color: var(--line-strong);
+      font-family: var(--mono);
+      font-size: 0.68rem;
+    }
+
+    .side-nav a:hover,
+    .side-nav a.active { color: var(--accent-strong); transform: translateX(-3px); }
+    .side-nav a.active::before { color: var(--signal); }
+
+    .nav-note {
+      margin-top: 22px;
+      padding: 13px 14px;
+      border: 1px dashed var(--line-strong);
+      border-radius: 12px;
+      color: var(--muted);
+      font-size: 0.78rem;
+      line-height: 1.7;
+    }
+
+    .hero {
+      position: relative;
+      display: grid;
+      grid-template-columns: minmax(0, 1.45fr) minmax(260px, 0.7fr);
+      gap: clamp(28px, 6vw, 88px);
+      align-items: end;
+      min-height: 610px;
+      overflow: hidden;
+      border: 1px solid var(--ink);
+      border-radius: 28px 8px 28px 28px;
+      background: var(--surface);
+      box-shadow: 12px 12px 0 var(--paper-2), 13px 13px 0 var(--ink);
+      padding: clamp(34px, 6vw, 82px);
+    }
+
+    .hero::after {
+      content: "";
+      position: absolute;
+      inset: 22px 22px auto auto;
+      width: 86px;
+      aspect-ratio: 1;
+      border: 14px solid var(--accent);
+      border-inline-start-color: transparent;
+      border-radius: 50%;
+      opacity: 0.32;
+      transform: rotate(-28deg);
+    }
+
+    .eyebrow {
+      display: inline-flex;
+      align-items: center;
+      gap: 9px;
+      margin: 0 0 20px;
+      color: var(--accent-strong);
+      font-size: 0.78rem;
+      font-weight: 800;
+      letter-spacing: 0.04em;
+    }
+
+    .eyebrow::before { content: ""; width: 34px; height: 3px; background: var(--signal); }
+
+    h1, h2, h3 { line-height: 1.35; letter-spacing: -0.045em; }
+
+    h1 {
+      max-width: 760px;
+      margin: 0;
+      font-size: clamp(3.1rem, 7.2vw, 7.4rem);
+      font-weight: 850;
+      line-height: 1.04;
+    }
+
+    .hero-copy {
+      max-width: 660px;
+      margin: 30px 0 0;
+      color: var(--muted);
+      font-size: clamp(1rem, 1.5vw, 1.2rem);
+    }
+
+    .hero-copy strong { color: var(--ink); }
+
+    .hero-panel {
+      position: relative;
+      z-index: 1;
+      margin-bottom: 16px;
+      border-top: 4px solid var(--signal);
+      background: var(--paper-2);
+      padding: 22px;
+    }
+
+    .hero-panel small { color: var(--muted); }
+    .hero-panel dl { margin: 14px 0 0; }
+    .hero-panel div { display: flex; justify-content: space-between; gap: 12px; padding: 8px 0; border-top: 1px solid var(--line); }
+    .hero-panel dt { color: var(--muted); }
+    .hero-panel dd { margin: 0; font-weight: 700; direction: ltr; text-align: left; }
+
+    .chapter {
+      margin-top: clamp(78px, 11vw, 150px);
+      scroll-margin-top: 28px;
+    }
+
+    .chapter-head {
+      display: grid;
+      grid-template-columns: 82px minmax(0, 1fr);
+      gap: 20px;
+      align-items: start;
+      margin-bottom: 34px;
+    }
+
+    .chapter-number {
+      color: var(--signal);
+      font-family: var(--mono);
+      font-size: 0.82rem;
+      font-weight: 800;
+      letter-spacing: 0.08em;
+      direction: ltr;
+    }
+
+    .chapter-number::after {
+      content: "";
+      display: block;
+      width: 54px;
+      height: 1px;
+      margin-top: 10px;
+      background: currentColor;
+    }
+
+    h2 { margin: 0; font-size: clamp(2rem, 4vw, 4.3rem); font-weight: 820; }
+
+    .chapter-intro { max-width: 760px; margin: 12px 0 0; color: var(--muted); font-size: 1.02rem; }
+
+    h3 { margin: 0 0 13px; font-size: 1.25rem; }
+
+    .grid-2, .grid-3 {
+      display: grid;
+      gap: 16px;
+    }
+
+    .grid-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .grid-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    .grid-2 > *, .grid-3 > * { min-width: 0; }
+
+    .card {
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: var(--surface);
+      padding: 24px;
+      box-shadow: 0 4px 0 var(--paper-2);
+    }
+
+    .card p { margin: 0; color: var(--muted); }
+
+    .feature-card {
+      min-height: 210px;
+      border-top: 4px solid var(--accent);
+    }
+
+    .feature-card:nth-child(2n) { border-top-color: var(--signal); }
+
+    .feature-icon {
+      display: inline-grid;
+      width: 42px;
+      height: 42px;
+      margin-bottom: 34px;
+      place-items: center;
+      border: 1px solid currentColor;
+      border-radius: 12px;
+      color: var(--accent-strong);
+      background: var(--accent-soft);
+    }
+
+    .feature-icon svg { width: 21px; height: 21px; }
+
+    .step-list { display: grid; gap: 18px; }
+
+    .step {
+      display: grid;
+      grid-template-columns: 56px minmax(0, 1fr);
+      gap: 18px;
+      align-items: start;
+    }
+
+    .step-badge {
+      display: grid;
+      width: 52px;
+      height: 52px;
+      place-items: center;
+      border: 1px solid var(--ink);
+      border-radius: 50%;
+      background: var(--signal-soft);
+      font-family: var(--mono);
+      font-size: 0.8rem;
+      font-weight: 800;
+    }
+
+    .step-content { min-width: 0; padding-top: 7px; }
+    .step-content > p { margin: 0 0 13px; color: var(--muted); }
+
+    .code-block {
+      position: relative;
+      overflow: hidden;
+      margin: 14px 0 20px;
+      border: 1px solid color-mix(in srgb, var(--code-ink) 18%, transparent);
+      border-radius: 15px;
+      background: var(--code);
+      color: var(--code-ink);
+      box-shadow: var(--shadow);
+      direction: ltr;
+      text-align: left;
+    }
+
+    .code-label {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      min-height: 42px;
+      border-bottom: 1px solid color-mix(in srgb, var(--code-ink) 14%, transparent);
+      padding: 7px 9px 7px 16px;
+      color: #a7b8b1;
+      font-family: var(--font);
+      font-size: 0.72rem;
+      direction: rtl;
+    }
+
+    .terminal-dots { display: flex; gap: 5px; direction: ltr; }
+    .terminal-dots i { width: 7px; height: 7px; border-radius: 50%; background: #58706a; }
+    .terminal-dots i:first-child { background: var(--signal); }
+
+    pre {
+      margin: 0;
+      overflow-x: auto;
+      padding: 19px 20px 22px;
+      font-size: 0.86rem;
+      line-height: 1.8;
+      tab-size: 2;
+    }
+
+    .copy-button {
+      min-height: 30px;
+      border: 1px solid #4b625c;
+      border-radius: 8px;
+      background: transparent;
+      color: #d5e1dc;
+      padding: 2px 9px;
+      cursor: pointer;
+    }
+
+    .copy-button:hover { background: #24332f; }
+    .copy-button.copied { border-color: #7fc39b; color: #a8e0bd; }
+
+    .callout {
+      display: grid;
+      grid-template-columns: 5px minmax(0, 1fr);
+      overflow: hidden;
+      margin: 20px 0;
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      background: var(--surface);
+    }
+
+    .callout::before { content: ""; background: var(--accent); }
+    .callout.warn::before { background: var(--warn); }
+    .callout.danger::before { background: var(--danger); }
+    .callout > div { padding: 16px 18px; }
+    .callout strong { display: block; margin-bottom: 2px; }
+    .callout p { margin: 0; color: var(--muted); }
+
+    .check-list { margin: 0; padding: 0; list-style: none; }
+    .check-list li { position: relative; padding: 8px 30px 8px 0; }
+    .check-list li::before {
+      content: "";
+      position: absolute;
+      inset: 16px 3px auto auto;
+      width: 12px;
+      height: 7px;
+      border: solid var(--ok);
+      border-width: 0 0 2px 2px;
+      transform: rotate(-45deg);
+    }
+
+    .table-wrap {
+      overflow-x: auto;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: var(--surface);
+    }
+
+    table { width: 100%; min-width: 770px; border-collapse: collapse; }
+    th, td { padding: 14px 16px; border-bottom: 1px solid var(--line); text-align: right; vertical-align: top; }
+    th { color: var(--muted); font-size: 0.76rem; font-weight: 800; letter-spacing: 0.03em; }
+    td { font-size: 0.9rem; }
+    tbody tr:last-child td { border-bottom: 0; }
+    tbody tr:hover { background: color-mix(in srgb, var(--accent-soft) 42%, transparent); }
+    td code, .inline-code {
+      display: inline-block;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      background: var(--paper-2);
+      color: var(--accent-strong);
+      padding: 0 6px;
+      font-size: 0.8em;
+      direction: ltr;
+    }
+
+    .flow {
+      display: grid;
+      grid-template-columns: repeat(5, 1fr);
+      gap: 8px;
+      margin: 28px 0;
+      direction: ltr;
+    }
+
+    .flow-item {
+      position: relative;
+      min-width: 0;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      background: var(--surface);
+      padding: 15px 10px;
+      text-align: center;
+      direction: rtl;
+    }
+
+    .flow-item:not(:last-child)::after {
+      content: "";
+      position: absolute;
+      top: 50%;
+      right: -9px;
+      z-index: 2;
+      width: 10px;
+      height: 10px;
+      border-top: 2px solid var(--signal);
+      border-right: 2px solid var(--signal);
+      transform: translateY(-50%) rotate(45deg);
+    }
+
+    .flow-item code { display: block; color: var(--accent-strong); font-size: 0.66rem; }
+    .flow-item span { display: block; margin-top: 5px; color: var(--muted); font-size: 0.76rem; }
+
+    .status-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+    .status-item { display: grid; grid-template-columns: 12px 1fr; gap: 10px; align-items: start; border-bottom: 1px solid var(--line); padding: 12px 0; }
+    .status-dot { width: 10px; height: 10px; margin-top: 8px; border: 2px solid var(--surface); border-radius: 50%; background: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+    .status-item:nth-child(4n + 2) .status-dot { background: var(--warn); box-shadow: 0 0 0 1px var(--warn); }
+    .status-item:nth-child(4n + 3) .status-dot { background: var(--ok); box-shadow: 0 0 0 1px var(--ok); }
+    .status-item:nth-child(4n) .status-dot { background: var(--danger); box-shadow: 0 0 0 1px var(--danger); }
+    .status-item strong { display: block; direction: ltr; text-align: right; font-family: var(--mono); font-size: 0.78rem; }
+    .status-item span { color: var(--muted); font-size: 0.86rem; }
+
+    details {
+      border-bottom: 1px solid var(--line);
+      background: var(--surface);
+    }
+
+    details:first-child { border-radius: var(--radius) var(--radius) 0 0; }
+    details:last-child { border-bottom: 0; border-radius: 0 0 var(--radius) var(--radius); }
+    summary { display: flex; align-items: center; justify-content: space-between; gap: 20px; padding: 18px 20px; font-weight: 760; cursor: pointer; list-style: none; }
+    summary::-webkit-details-marker { display: none; }
+    summary::after { content: "+"; color: var(--signal); font-family: var(--mono); font-size: 1.35rem; }
+    details[open] summary::after { content: "−"; }
+    details p { margin: 0; padding: 0 20px 20px; color: var(--muted); }
+    .faq { overflow: hidden; border: 1px solid var(--line); border-radius: var(--radius); }
+
+    .final-check {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(260px, 0.55fr);
+      gap: 30px;
+      align-items: center;
+      overflow: hidden;
+      border: 1px solid var(--ink);
+      border-radius: 8px 28px 28px 28px;
+      background: var(--ink);
+      color: var(--paper);
+      padding: clamp(28px, 5vw, 56px);
+    }
+
+    .final-check h2 { color: #f4f1e8; }
+    .final-check p { color: #bdc8c3; }
+    .final-check .check-list { color: #e7efeb; }
+    .final-check .check-list li::before { border-color: #76c89a; }
+    .launch-command { border: 1px solid #50605a; border-radius: 16px; background: #0b110f; padding: 20px; direction: ltr; text-align: left; }
+    .launch-command small { display: block; margin-bottom: 10px; color: #93a39d; font-family: var(--font); direction: rtl; text-align: right; }
+    .launch-command code { color: #edf5f1; font-size: clamp(0.9rem, 2vw, 1.1rem); }
+
+    footer { margin-top: 60px; border-top: 1px solid var(--line); padding-top: 22px; color: var(--muted); font-size: 0.82rem; }
+    footer p { margin: 5px 0; }
+
+    @media (max-width: 1040px) {
+      .page-shell { grid-template-columns: 1fr; }
+      .side-nav { position: static; order: -1; display: none; }
+      .hero { grid-template-columns: 1fr; min-height: auto; }
+      .hero-panel { max-width: 470px; }
+      .grid-3 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    }
+
+    @media (max-width: 720px) {
+      .topbar { padding: 16px 16px 4px; }
+      .page-shell { padding: 12px 16px 64px; }
+      .hero { padding: 38px 24px; border-radius: 20px 6px 20px 20px; box-shadow: 7px 7px 0 var(--paper-2), 8px 8px 0 var(--ink); }
+      .hero::after { width: 58px; border-width: 9px; }
+      h1 { font-size: clamp(2.8rem, 15vw, 4.6rem); }
+      .chapter-head { grid-template-columns: 1fr; gap: 10px; }
+      .chapter-number::after { display: inline-block; margin: 0 10px 3px 0; }
+      .grid-2, .grid-3, .status-list, .final-check { grid-template-columns: 1fr; }
+      .flow { grid-template-columns: 1fr; direction: rtl; }
+      .flow-item:not(:last-child)::after { top: auto; right: 50%; bottom: -9px; transform: translateX(50%) rotate(135deg); }
+      .step { grid-template-columns: 42px minmax(0, 1fr); gap: 12px; }
+      .step-badge { width: 40px; height: 40px; }
+      .hide-mobile { display: none; }
+      pre { font-size: 0.75rem; }
+    }
+
+    @media print {
+      :root { --paper: #fff; --surface: #fff; --paper-2: #f2f2f2; --ink: #000; --muted: #444; --line: #bbb; }
+      body { background: #fff; font-size: 10pt; }
+      .scroll-progress, .topbar, .side-nav, .copy-button { display: none !important; }
+      .page-shell { display: block; max-width: none; padding: 0; }
+      .hero { min-height: auto; box-shadow: none; break-after: page; }
+      .chapter { margin-top: 48px; break-inside: avoid; }
+      .code-block { box-shadow: none; }
+      a { color: #000; text-decoration: none; }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      html { scroll-behavior: auto; }
+      *, *::before, *::after { transition-duration: 0.01ms !important; animation-duration: 0.01ms !important; }
+    }
+  </style>
+</head>
+<body>
+  <a class="skip-link" href="#main">رفتن به محتوای اصلی</a>
+  <div class="scroll-progress" aria-hidden="true"><span id="scrollProgress"></span></div>
+
+  <header class="topbar">
+    <a class="brand" href="#top" aria-label="SajadBot — ابتدای صفحه">
+      <span class="brand-mark" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="none"><path d="M20 5 9.5 15.5 4 12" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </span>
+      <span>SajadBot <small style="color:var(--muted);font-weight:500">/ راهنمای فارسی</small></span>
+    </a>
+    <div class="top-actions">
+      <button class="icon-button" id="themeToggle" type="button" aria-label="تغییر پوسته" title="تغییر پوسته">
+        <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 3v2m0 14v2M3 12h2m14 0h2m-3.64-6.36-1.42 1.42M8.06 15.94l-1.42 1.42m0-11.72 1.42 1.42m7.88 8.88 1.42 1.42M16 12a4 4 0 1 1-8 0 4 4 0 0 1 8 0Z" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+      </button>
+      <button class="icon-button hide-mobile" type="button" onclick="window.print()" aria-label="چاپ راهنما" title="چاپ راهنما">
+        <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M7 8V3h10v5M7 17H5a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2m-10-4h10v8H7v-8Z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg>
+      </button>
+    </div>
+  </header>
+
+  <div class="page-shell" id="top">
+    <main id="main">
+      <section class="hero" aria-labelledby="page-title">
+        <div>
+          <p class="eyebrow">راهنمای عملیاتی نسخه ۱.۰</p>
+          <h1 id="page-title">از نصب تا اولین ارسال</h1>
+          <p class="hero-copy">
+            راهنمای قدم‌به‌قدم <strong>راه‌اندازی، پیکربندی و کار با SajadBot</strong>؛
+            یک کلاینت حساب شخصی تلگرام برای ارسال قابل‌ردیابی به گروه‌های مجاز، با صف پایدار و رفتار محافظه‌کارانه در خطاها.
+          </p>
+        </div>
+        <aside class="hero-panel" aria-label="مشخصات فنی پروژه">
+          <small>مشخصات فنی در یک نگاه</small>
+          <dl>
+            <div><dt>زمان اجرا</dt><dd>Python 3.12+</dd></div>
+            <div><dt>سیستم‌عامل</dt><dd>Windows / Ubuntu</dd></div>
+            <div><dt>رابط تلگرام</dt><dd>Telethon</dd></div>
+            <div><dt>ذخیره‌سازی</dt><dd>SQLite</dd></div>
+            <div><dt>منطقه زمانی نمونه</dt><dd>Asia/Tehran</dd></div>
+            <div><dt>شیوه ارسال</dt><dd>Sequential</dd></div>
+          </dl>
+        </aside>
+      </section>
+
+      <section class="chapter" id="overview">
+        <div class="chapter-head">
+          <span class="chapter-number">00 / معرفی</span>
+          <div>
+            <h2>این پروژه دقیقاً چه می‌کند؟</h2>
+            <p class="chapter-intro">SajadBot پیام‌ها را از حساب شخصی شما به گروه‌هایی می‌فرستد که از قبل عضو آن‌ها هستید و خودتان صریحاً مجازشان کرده‌اید. هدف، ارسال مطمئن و قابل پیگیری است؛ نه ارسال انبوه یا دورزدن محدودیت‌های تلگرام.</p>
+          </div>
+        </div>
+        <div class="grid-3">
+          <article class="card feature-card">
+            <span class="feature-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><path d="M5 7h14M5 12h14M5 17h9" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></span>
+            <h3>صف پایدار</h3>
+            <p>همه‌ی کارها در SQLite ثبت می‌شوند؛ بنابراین با توقف برنامه، پیام‌های ارسال‌نشده از بین نمی‌روند.</p>
+          </article>
+          <article class="card feature-card">
+            <span class="feature-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><path d="M12 7v5l3 2m6-2a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></span>
+            <h3>ارسال و زمان‌بندی</h3>
+            <p>متن و فایل را همان لحظه یا برای زمان آینده صف کنید. زمان‌ها در پایگاه داده به‌صورت UTC نگه‌داری می‌شوند.</p>
+          </article>
+          <article class="card feature-card">
+            <span class="feature-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><path d="M12 3 5 6v5c0 4.8 2.9 8.1 7 10 4.1-1.9 7-5.2 7-10V6l-7-3Zm-3 9 2 2 4-5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+            <h3>مقصدهای سفید</h3>
+            <p>گروه‌های تازه کشف‌شده غیرفعال‌اند و فقط پس از دستور <code class="inline-code">allow</code> مقصد ارسال می‌شوند.</p>
+          </article>
+          <article class="card feature-card">
+            <span class="feature-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><path d="M4 7h16v10H8l-4 3V7Zm4 4h8M8 14h5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+            <h3>کنترل از Saved Messages</h3>
+            <p>صف، گروه‌ها و ارسال‌ها را از پیام‌های ذخیره‌شده‌ی همان حساب مدیریت کنید؛ ورودی‌های دیگر نادیده گرفته می‌شوند.</p>
+          </article>
+          <article class="card feature-card">
+            <span class="feature-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><path d="M4 12a8 8 0 1 0 2.34-5.66L4 8.68M4 4v4.68h4.68" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+            <h3>تلاش مجدد حساب‌شده</h3>
+            <p>FloodWait و Slow Mode رعایت می‌شوند؛ خطاهای شبکه با وقفه‌ی افزایشی و سقف تلاش مدیریت می‌شوند.</p>
+          </article>
+          <article class="card feature-card">
+            <span class="feature-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><path d="M5 19V9m7 10V5m7 14v-7" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></span>
+            <h3>قابل مشاهده و حسابرسی</h3>
+            <p>وضعیت صف، سلامت اتصال و رویدادهای مهم ثبت می‌شوند؛ بدنه‌ی پیام‌ها به‌طور پیش‌فرض وارد لاگ نمی‌شود.</p>
+          </article>
+        </div>
+      </section>
+
+      <section class="chapter" id="requirements">
+        <div class="chapter-head">
+          <span class="chapter-number">01 / پیش‌نیاز</span>
+          <div>
+            <h2>قبل از شروع</h2>
+            <p class="chapter-intro">سه مورد لازم است: پایتون جدید، مشخصات API تلگرام و حسابی که از قبل عضو گروه مقصد باشد. اجرا روی ویندوز و Ubuntu Server پشتیبانی می‌شود.</p>
+          </div>
+        </div>
+        <div class="grid-2">
+          <div class="card">
+            <h3>روی سیستم</h3>
+            <ul class="check-list">
+              <li>Python نسخه‌ی ۳.۱۲ یا جدیدتر</li>
+              <li>PowerShell روی ویندوز یا Ubuntu 24.04 LTS برای سرور</li>
+              <li>دسترسی نوشتن در پوشه‌ی پروژه</li>
+              <li>اینترنت پایدار برای اتصال به تلگرام</li>
+            </ul>
+          </div>
+          <div class="card">
+            <h3>از تلگرام</h3>
+            <ul class="check-list">
+              <li>یک حساب شخصی فعال</li>
+              <li>عضویت قبلی در گروه‌های مقصد</li>
+              <li><code class="inline-code">api_id</code> و <code class="inline-code">api_hash</code> از <a href="https://my.telegram.org" target="_blank" rel="noreferrer">my.telegram.org</a></li>
+              <li>دسترسی به کد ورود و رمز دومرحله‌ای، در صورت فعال بودن</li>
+            </ul>
+          </div>
+        </div>
+        <div class="callout danger">
+          <div><strong>مرز استفاده</strong><p>این ابزار برای چرخاندن حساب‌ها، تعویض پروکسی جهت دورزدن محدودیت یا ارسال پیش از پایان زمان اعلام‌شده‌ی تلگرام طراحی نشده است.</p></div>
+        </div>
+      </section>
+
+      <section class="chapter" id="install">
+        <div class="chapter-head">
+          <span class="chapter-number">02 / نصب</span>
+          <div>
+            <h2>راه‌اندازی روی ویندوز</h2>
+            <p class="chapter-intro">فرمان‌ها را از ریشه‌ی پروژه اجرا کنید. برای استقرار دائمی روی سرور Ubuntu، فصل بعد را دنبال کنید.</p>
+          </div>
+        </div>
+        <div class="step-list">
+          <article class="step">
+            <span class="step-badge">۱</span>
+            <div class="step-content">
+              <h3>ساخت محیط مجازی و نصب</h3>
+              <p>در PowerShell ویندوز:</p>
+              <div class="code-block">
+                <div class="code-label"><span class="terminal-dots"><i></i><i></i><i></i></span><span>PowerShell</span><button class="copy-button" type="button">کپی</button></div>
+                <pre><code>python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install -e ".[dev]"</code></pre>
+              </div>
+            </div>
+          </article>
+          <article class="step">
+            <span class="step-badge">۲</span>
+            <div class="step-content">
+              <h3>ساخت فایل تنظیمات</h3>
+              <p>فایل نمونه را کپی کنید و سپس مقدارهای ضروری را در <code class="inline-code">.env</code> قرار دهید.</p>
+              <div class="code-block">
+                <div class="code-label"><span class="terminal-dots"><i></i><i></i><i></i></span><span>PowerShell</span><button class="copy-button" type="button">کپی</button></div>
+                <pre><code>Copy-Item .env.example .env</code></pre>
+              </div>
+              <div class="code-block">
+                <div class="code-label"><span class="terminal-dots"><i></i><i></i><i></i></span><span>.env</span><button class="copy-button" type="button">کپی</button></div>
+                <pre><code>TG_API_ID=123456
+TG_API_HASH=your_api_hash
+TG_PHONE=+989121234567</code></pre>
+              </div>
+            </div>
+          </article>
+          <article class="step">
+            <span class="step-badge">۳</span>
+            <div class="step-content">
+              <h3>اولین ورود</h3>
+              <p>برنامه را اجرا کنید. بار اول، کد ورود تلگرام و در صورت فعال بودن، رمز دومرحله‌ای را تعاملی می‌پرسد.</p>
+              <div class="code-block">
+                <div class="code-label"><span class="terminal-dots"><i></i><i></i><i></i></span><span>PowerShell</span><button class="copy-button" type="button">کپی</button></div>
+                <pre><code>python run.py start</code></pre>
+              </div>
+            </div>
+          </article>
+        </div>
+        <div class="callout warn">
+          <div><strong>فقط یک پردازش</strong><p>هم‌زمان فقط یک اجرای <code class="inline-code">start</code> یا <code class="inline-code">groups refresh</code> می‌تواند session را در اختیار بگیرد. پیش از اجرای نمونه‌ی دوم، قبلی را متوقف کنید.</p></div>
+        </div>
+      </section>
+
+      <section class="chapter" id="ubuntu-server">
+        <div class="chapter-head">
+          <span class="chapter-number">03 / سرور Ubuntu</span>
+          <div>
+            <h2>اجرای دائمی با systemd</h2>
+            <p class="chapter-intro">اسکریپت نصب، برنامه را در مسیر استاندارد سرور قرار می‌دهد، یک کاربر محدود سیستمی می‌سازد و سرویس را برای اجرای پایدار آماده می‌کند. Ubuntu 24.04 LTS پیشنهاد می‌شود؛ چون Python 3.12 را به‌صورت رسمی ارائه می‌کند.</p>
+          </div>
+        </div>
+
+        <div class="step-list">
+          <article class="step">
+            <span class="step-badge">۱</span>
+            <div class="step-content">
+              <h3>انتقال پروژه و نصب</h3>
+              <p>پوشه‌ی پروژه را با Git، SCP یا SFTP روی سرور قرار دهید، وارد ریشه‌ی آن شوید و نصب‌کننده را اجرا کنید. نصب‌کننده بسته‌های سیستم، محیط مجازی، کاربر <code class="inline-code">sajadbot</code> و فایل سرویس را می‌سازد؛ اما در نصب اول سرویس را پیش از ورود تلگرام روشن نمی‌کند.</p>
+              <div class="code-block">
+                <div class="code-label"><span class="terminal-dots"><i></i><i></i><i></i></span><span>Ubuntu / Bash</span><button class="copy-button" type="button">کپی</button></div>
+                <pre><code>cd /path/to/SajadBot
+sudo bash scripts/ubuntu/install.sh</code></pre>
+              </div>
+            </div>
+          </article>
+
+          <article class="step">
+            <span class="step-badge">۲</span>
+            <div class="step-content">
+              <h3>ثبت تنظیمات سرور</h3>
+              <p>سه مقدار تلگرام را در فایل محافظت‌شده‌ی سرور وارد کنید. مسیرهای دیتابیس، session، آپلود و لاگ از قبل به مسیرهای دائمی تنظیم شده‌اند.</p>
+              <div class="code-block">
+                <div class="code-label"><span class="terminal-dots"><i></i><i></i><i></i></span><span>Ubuntu / Bash</span><button class="copy-button" type="button">کپی</button></div>
+                <pre><code>sudoedit /etc/sajadbot/sajadbot.env</code></pre>
+              </div>
+              <div class="code-block">
+                <div class="code-label"><span class="terminal-dots"><i></i><i></i><i></i></span><span>/etc/sajadbot/sajadbot.env</span><button class="copy-button" type="button">کپی</button></div>
+                <pre><code>TG_API_ID=123456
+TG_API_HASH=your_api_hash
+TG_PHONE=+989121234567</code></pre>
+              </div>
+            </div>
+          </article>
+
+          <article class="step">
+            <span class="step-badge">۳</span>
+            <div class="step-content">
+              <h3>ورود اولیه و مجازکردن گروه</h3>
+              <p>این مرحله باید در ترمینال تعاملی انجام شود تا کد ورود و در صورت نیاز رمز دومرحله‌ای را وارد کنید. سپس شناسه‌ی گروه موردنظر را مجاز کنید.</p>
+              <div class="code-block">
+                <div class="code-label"><span class="terminal-dots"><i></i><i></i><i></i></span><span>Ubuntu / Bash</span><button class="copy-button" type="button">کپی</button></div>
+                <pre><code>sudo -u sajadbot /usr/local/bin/sajadbot groups refresh
+sudo -u sajadbot /usr/local/bin/sajadbot groups list
+sudo -u sajadbot /usr/local/bin/sajadbot groups allow -1001234567890</code></pre>
+              </div>
+            </div>
+          </article>
+
+          <article class="step">
+            <span class="step-badge">۴</span>
+            <div class="step-content">
+              <h3>فعال‌سازی و مشاهده‌ی سرویس</h3>
+              <p>پس از ورود موفق، سرویس را فعال کنید تا همین حالا و پس از هر reboot اجرا شود. برنامه پورت ورودی باز نمی‌کند و فقط اتصال خروجی به تلگرام نیاز دارد.</p>
+              <div class="code-block">
+                <div class="code-label"><span class="terminal-dots"><i></i><i></i><i></i></span><span>systemd</span><button class="copy-button" type="button">کپی</button></div>
+                <pre><code>sudo systemctl enable --now sajadbot
+sudo systemctl status sajadbot
+sudo journalctl -u sajadbot -f</code></pre>
+              </div>
+            </div>
+          </article>
+        </div>
+
+        <div class="grid-2">
+          <div class="card">
+            <h3>مسیرهای نسخه‌ی سرور</h3>
+            <ul class="check-list">
+              <li>برنامه: <code class="inline-code">/opt/sajadbot</code></li>
+              <li>تنظیمات: <code class="inline-code">/etc/sajadbot/sajadbot.env</code></li>
+              <li>دیتابیس و session: <code class="inline-code">/var/lib/sajadbot</code></li>
+              <li>لاگ فایل: <code class="inline-code">/var/log/sajadbot/app.log</code></li>
+            </ul>
+          </div>
+          <div class="card">
+            <h3>مدیریت و به‌روزرسانی</h3>
+            <div class="code-block">
+              <div class="code-label"><span class="terminal-dots"><i></i><i></i><i></i></span><span>Ubuntu / Bash</span><button class="copy-button" type="button">کپی</button></div>
+              <pre><code># اجرای هر فرمان مدیریتی
+sudo -u sajadbot /usr/local/bin/sajadbot status
+
+# پس از جایگزینی فایل‌های پروژه با نسخه‌ی جدید
+sudo bash scripts/ubuntu/install.sh
+sudo systemctl restart sajadbot</code></pre>
+            </div>
+          </div>
+        </div>
+
+        <div class="callout warn">
+          <div><strong>از اجرای هم‌زمان CLI و سرویس خودداری کنید</strong><p>فرمان‌هایی مثل <code class="inline-code">groups refresh</code> که session تلگرام را باز می‌کنند باید وقتی سرویس متوقف است اجرا شوند: <code class="inline-code">sudo systemctl stop sajadbot</code>. فرمان‌های عادی صف و وضعیت به session دست نمی‌زنند.</p></div>
+        </div>
+      </section>
+
+      <section class="chapter" id="configuration">
+        <div class="chapter-head">
+          <span class="chapter-number">04 / تنظیمات</span>
+          <div>
+            <h2>مرجع فایل <span dir="ltr">.env</span></h2>
+            <p class="chapter-intro">سه مقدار اول برای اتصال ضروری‌اند. در ویندوز این مقادیر در <code class="inline-code">.env</code> و در نصب سرور داخل <code class="inline-code">/etc/sajadbot/sajadbot.env</code> قرار می‌گیرند.</p>
+          </div>
+        </div>
+        <div class="table-wrap" role="region" aria-label="جدول تنظیمات محیطی" tabindex="0">
+          <table>
+            <thead><tr><th>متغیر</th><th>پیش‌فرض نمونه</th><th>کاربرد</th></tr></thead>
+            <tbody>
+              <tr><td><code>TG_API_ID</code></td><td>—</td><td>شناسه‌ی عددی اپلیکیشن تلگرام؛ الزامی</td></tr>
+              <tr><td><code>TG_API_HASH</code></td><td>—</td><td>کلید محرمانه‌ی اپلیکیشن تلگرام؛ الزامی</td></tr>
+              <tr><td><code>TG_PHONE</code></td><td>—</td><td>شماره‌ی حساب با پیش‌شماره‌ی کشور؛ الزامی</td></tr>
+              <tr><td><code>TG_SESSION_PATH</code></td><td><code>./data/sessions/main</code></td><td>مسیر session احراز هویت Telethon</td></tr>
+              <tr><td><code>DATABASE_URL</code></td><td><code>sqlite+aiosqlite:///./data/app.db</code></td><td>آدرس پایگاه داده‌ی صف و وضعیت‌ها</td></tr>
+              <tr><td><code>UPLOADS_DIR</code></td><td><code>./data/uploads</code></td><td>محل کپی امن فایل‌های صف‌شده</td></tr>
+              <tr><td><code>LOG_PATH</code></td><td><code>./logs/app.log</code></td><td>مسیر فایل گزارش برنامه</td></tr>
+              <tr><td><code>LOG_LEVEL</code></td><td><code>INFO</code></td><td>سطح جزئیات گزارش‌ها</td></tr>
+              <tr><td><code>LOG_FORMAT</code></td><td><code>console</code></td><td><code>console</code> برای خواندن انسانی یا <code>json</code> برای پردازش ماشینی</td></tr>
+              <tr><td><code>LOG_MESSAGE_BODIES</code></td><td><code>false</code></td><td>ثبت متن پیام در لاگ؛ برای امنیت خاموش بماند</td></tr>
+              <tr><td><code>CONTROL_SAVED_MESSAGES</code></td><td><code>true</code></td><td>فعال‌سازی کنترل از Saved Messages</td></tr>
+              <tr><td><code>DRY_RUN</code></td><td><code>false</code></td><td>اعتبارسنجی و ثبت کار بدون تماس با API ارسال تلگرام</td></tr>
+              <tr><td><code>LOCAL_TIMEZONE</code></td><td><code>Asia/Tehran</code></td><td>تفسیر زمان‌های بدون offset و نمایش زمان محلی</td></tr>
+              <tr><td><code>DEFAULT_SEND_INTERVAL_SECONDS</code></td><td><code>8</code></td><td>فاصله‌ی پایه میان ارسال‌های ترتیبی</td></tr>
+              <tr><td><code>MAX_QUEUE_ATTEMPTS</code></td><td><code>5</code></td><td>حداکثر دفعات تلاش برای خطاهای قابل بازیابی</td></tr>
+              <tr><td><code>MAX_AUTOMATIC_FLOOD_WAIT_SECONDS</code></td><td><code>300</code></td><td>آستانه‌ی FloodWait برای توقف همه‌ی خروجی‌ها</td></tr>
+              <tr><td><code>WORKER_POLL_SECONDS</code></td><td><code>1</code></td><td>فاصله‌ی بررسی صف توسط worker</td></tr>
+              <tr><td><code>MAX_MEDIA_BYTES</code></td><td><code>2147483648</code></td><td>حداکثر اندازه‌ی فایل رسانه‌ای برحسب بایت</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="callout">
+          <div><strong>نکته‌ی منطقه زمانی</strong><p>مقدار نمونه‌ی پروژه <code class="inline-code">Asia/Tehran</code> است. زمان‌های بدون offset با همین منطقه تفسیر و سپس به UTC تبدیل می‌شوند.</p></div>
+        </div>
+      </section>
+
+      <section class="chapter" id="groups">
+        <div class="chapter-head">
+          <span class="chapter-number">05 / گروه‌ها</span>
+          <div>
+            <h2>کشف، نام‌گذاری و مجازکردن مقصد</h2>
+            <p class="chapter-intro">عضویت در گروه به‌تنهایی کافی نیست؛ هر مقصد باید پس از refresh صریحاً در فهرست مجاز قرار بگیرد.</p>
+          </div>
+        </div>
+        <div class="flow" aria-label="روند آماده‌سازی گروه">
+          <div class="flow-item"><code>refresh</code><span>دریافت گروه‌ها</span></div>
+          <div class="flow-item"><code>list</code><span>بررسی شناسه‌ها</span></div>
+          <div class="flow-item"><code>allow</code><span>مجازکردن مقصد</span></div>
+          <div class="flow-item"><code>alias</code><span>نام کوتاه اختیاری</span></div>
+          <div class="flow-item"><code>allowed</code><span>تأیید نهایی</span></div>
+        </div>
+        <div class="code-block">
+          <div class="code-label"><span class="terminal-dots"><i></i><i></i><i></i></span><span>مدیریت گروه‌ها</span><button class="copy-button" type="button">کپی</button></div>
+          <pre><code>python run.py groups refresh
+python run.py groups list
+python run.py groups allow -1001234567890
+python run.py groups alias -1001234567890 work
+python run.py groups allowed</code></pre>
+        </div>
+        <div class="callout warn">
+          <div><strong>لغو دسترسی مقصد</strong><p>دستور <code class="inline-code">python run.py groups deny work</code> مقصد را غیرفعال می‌کند و همه‌ی کارهای صف‌شده و ارسال‌نشده‌ی آن را بلافاصله لغو می‌کند.</p></div>
+        </div>
+      </section>
+
+      <section class="chapter" id="sending">
+        <div class="chapter-head">
+          <span class="chapter-number">06 / ارسال</span>
+          <div>
+            <h2>ارسال متن، فایل و پیام زمان‌بندی‌شده</h2>
+            <p class="chapter-intro">فرمان‌ها ابتدا کار را در SQLite ثبت می‌کنند. اگر worker فعال باشد آن را برمی‌دارد؛ در غیر این صورت تا اجرای بعدی <code class="inline-code">start</code> در صف می‌ماند.</p>
+          </div>
+        </div>
+        <div class="grid-2">
+          <div>
+            <h3>ارسال متن</h3>
+            <div class="code-block">
+              <div class="code-label"><span>PowerShell</span><button class="copy-button" type="button">کپی</button></div>
+              <pre><code>python run.py send --group work --text "Deployment completed."</code></pre>
+            </div>
+          </div>
+          <div>
+            <h3>ارسال فایل با توضیح</h3>
+            <div class="code-block">
+              <div class="code-label"><span>PowerShell</span><button class="copy-button" type="button">کپی</button></div>
+              <pre><code>python run.py send --group work --file ".\report.pdf" --text "Weekly report"</code></pre>
+            </div>
+          </div>
+          <div>
+            <h3>زمان‌بندی محلی</h3>
+            <div class="code-block">
+              <div class="code-label"><span>PowerShell</span><button class="copy-button" type="button">کپی</button></div>
+              <pre><code>python run.py send --group work --text "Reminder" --at "2026-09-20 14:30"</code></pre>
+            </div>
+          </div>
+          <div>
+            <h3>گزینه‌های تکمیلی</h3>
+            <div class="code-block">
+              <div class="code-label"><span>PowerShell</span><button class="copy-button" type="button">کپی</button></div>
+              <pre><code>python run.py send --group work --text "&lt;b&gt;Done&lt;/b&gt;" --parse-mode html --disable-link-preview</code></pre>
+            </div>
+          </div>
+        </div>
+        <div class="callout">
+          <div><strong>جلوگیری از ارسال تکراری</strong><p>فرمان معادلِ تکراری به‌طور خودکار سرکوب می‌شود. فقط وقتی تکرار عمدی است گزینه‌ی <code class="inline-code">--force</code> را اضافه کنید.</p></div>
+        </div>
+        <div class="callout">
+          <div><strong>فایل زمان‌بندی‌شده مستقل می‌ماند</strong><p>رسانه‌ی صف‌شده به مسیر <code class="inline-code">data/uploads/&lt;job-uuid&gt;/</code> کپی می‌شود؛ پس جابه‌جایی فایل اصلی باعث خرابی ارسال آینده نمی‌شود.</p></div>
+        </div>
+      </section>
+
+      <section class="chapter" id="saved-messages">
+        <div class="chapter-head">
+          <span class="chapter-number">07 / کنترل در تلگرام</span>
+          <div>
+            <h2>فرمان‌های Saved Messages</h2>
+            <p class="chapter-intro">وقتی <code class="inline-code">CONTROL_SAVED_MESSAGES=true</code> باشد، این فرمان‌ها را از همان حساب احراز هویت‌شده به Saved Messages خودتان بفرستید.</p>
+          </div>
+        </div>
+        <div class="code-block">
+          <div class="code-label"><span class="terminal-dots"><i></i><i></i><i></i></span><span>Saved Messages</span><button class="copy-button" type="button">کپی</button></div>
+          <pre><code>.help
+.status
+.groups
+.send work
+متن پیام
+.schedule work 2026-09-20 14:30
+متن پیام
+.queue
+.cancel &lt;job-uuid&gt;</code></pre>
+        </div>
+        <div class="grid-2">
+          <div class="card">
+            <h3>چه چیزی پذیرفته می‌شود؟</h3>
+            <p>فقط پیام غیر-forward شده‌ای که از حساب خودتان و در Saved Messages ارسال شده باشد.</p>
+          </div>
+          <div class="card">
+            <h3>چه پاسخی می‌گیرید؟</h3>
+            <p>پس از صف‌شدن کار پاسخ اولیه دریافت می‌کنید و بعد از تحویل یا شکست نیز وضعیت نهایی اعلام می‌شود.</p>
+          </div>
+        </div>
+      </section>
+
+      <section class="chapter" id="queue">
+        <div class="chapter-head">
+          <span class="chapter-number">08 / صف و سلامت</span>
+          <div>
+            <h2>مشاهده و مدیریت کارها</h2>
+            <p class="chapter-intro">شناسه‌ی UUID هر کار را از فهرست صف بردارید و برای لغو یا تلاش مجدد استفاده کنید.</p>
+          </div>
+        </div>
+        <div class="code-block">
+          <div class="code-label"><span class="terminal-dots"><i></i><i></i><i></i></span><span>فرمان‌های عملیاتی</span><button class="copy-button" type="button">کپی</button></div>
+          <pre><code>python run.py status
+python run.py queue list
+python run.py queue failed
+python run.py queue cancel JOB_UUID
+python run.py queue retry JOB_UUID</code></pre>
+        </div>
+        <div class="status-list" aria-label="وضعیت‌های کار در صف">
+          <div class="status-item"><i class="status-dot"></i><div><strong>PENDING</strong><span>آماده‌ی برداشتن توسط worker</span></div></div>
+          <div class="status-item"><i class="status-dot"></i><div><strong>SCHEDULED</strong><span>در انتظار رسیدن زمان برنامه‌ریزی‌شده</span></div></div>
+          <div class="status-item"><i class="status-dot"></i><div><strong>PROCESSING</strong><span>در حال پردازش توسط worker</span></div></div>
+          <div class="status-item"><i class="status-dot"></i><div><strong>WAITING_RATE_LIMIT</strong><span>منتظر پایان محدودیت تلگرام</span></div></div>
+          <div class="status-item"><i class="status-dot"></i><div><strong>RETRY</strong><span>خطای موقت؛ آماده‌ی تلاش بعدی</span></div></div>
+          <div class="status-item"><i class="status-dot"></i><div><strong>SENT</strong><span>با موفقیت ارسال شده</span></div></div>
+          <div class="status-item"><i class="status-dot"></i><div><strong>FAILED</strong><span>شکست قطعی یا پایان تعداد تلاش‌ها</span></div></div>
+          <div class="status-item"><i class="status-dot"></i><div><strong>CANCELLED</strong><span>به‌صورت صریح یا با deny مقصد لغو شده</span></div></div>
+          <div class="status-item"><i class="status-dot"></i><div><strong>REVIEW_REQUIRED</strong><span>نتیجه‌ی ارسال نامطمئن و نیازمند بررسی انسانی</span></div></div>
+          <div class="status-item"><i class="status-dot"></i><div><strong>DRY_RUN</strong><span>اعتبارسنجی شده ولی به تلگرام ارسال نشده</span></div></div>
+        </div>
+        <div class="callout danger">
+          <div><strong>اصل جلوگیری از پیام تکراری</strong><p>اگر برنامه هنگام <code class="inline-code">PROCESSING</code> متوقف شود، اجرای بعدی کار را خودکار تکرار نمی‌کند و به <code class="inline-code">REVIEW_REQUIRED</code> می‌برد. بعد از بررسی، فقط با <code class="inline-code">queue retry</code> آن را دوباره فعال کنید.</p></div>
+        </div>
+      </section>
+
+      <section class="chapter" id="reliability">
+        <div class="chapter-head">
+          <span class="chapter-number">09 / پایداری</span>
+          <div>
+            <h2>رفتار برنامه هنگام خطا</h2>
+            <p class="chapter-intro">برنامه به‌جای تلاش تهاجمی، وضعیت را ثبت می‌کند و محدودیت‌های اعلام‌شده از سوی تلگرام را رعایت می‌کند.</p>
+          </div>
+        </div>
+        <div class="grid-2">
+          <div class="card">
+            <h3>محدودیت ارسال</h3>
+            <p>FloodWait و Slow Mode با زمان تلاش بعدی ذخیره می‌شوند. FloodWait بزرگ‌تر از آستانه‌ی تنظیم‌شده، کل خروجی را تا موعد مقرر متوقف می‌کند.</p>
+          </div>
+          <div class="card">
+            <h3>اختلال شبکه</h3>
+            <p>خطاهای موقت با وقفه‌ی افزایشی محدود و کمی jitter دوباره امتحان می‌شوند تا فشار ناگهانی ایجاد نشود.</p>
+          </div>
+          <div class="card">
+            <h3>احراز هویت</h3>
+            <p>خطای مجوز حساب، worker را متوقف می‌کند و به ورود دوباره‌ی اپراتور نیاز دارد؛ صف بدون کنترل جلو نمی‌رود.</p>
+          </div>
+          <div class="card">
+            <h3>محتوا یا مقصد نامعتبر</h3>
+            <p>خطای دسترسی گروه، مقصد یا محتوای نامعتبر بدون تلاش کورکورانه شکست می‌خورد.</p>
+          </div>
+        </div>
+      </section>
+
+      <section class="chapter" id="security">
+        <div class="chapter-head">
+          <span class="chapter-number">10 / امنیت</span>
+          <div>
+            <h2>session همان اعتبار حساب است</h2>
+            <p class="chapter-intro">فایل session، رمز دومرحله‌ای، API hash و کدهای ورود را مثل اطلاعات محرمانه نگه دارید.</p>
+          </div>
+        </div>
+        <div class="grid-2">
+          <div class="card">
+            <h3>انجام دهید</h3>
+            <ul class="check-list">
+              <li>پوشه‌ی <code class="inline-code">data/sessions</code> را خصوصی نگه دارید.</li>
+              <li>فقط نسخه‌ی رمزنگاری‌شده‌ی داده‌های حساس را پشتیبان بگیرید.</li>
+              <li><code class="inline-code">LOG_MESSAGE_BODIES=false</code> را حفظ کنید.</li>
+              <li>مجوز گروه‌های غیرضروری را با <code class="inline-code">deny</code> بردارید.</li>
+            </ul>
+          </div>
+          <div class="card">
+            <h3>انجام ندهید</h3>
+            <ul class="check-list">
+              <li>فایل <code class="inline-code">.env</code> یا session را commit نکنید.</li>
+              <li>session را از طریق وب یا static hosting منتشر نکنید.</li>
+              <li>کد ورود، رمز یا API hash را در خط فرمان و لاگ ننویسید.</li>
+              <li>برای دورزدن FloodWait برنامه را پیاپی restart نکنید.</li>
+            </ul>
+          </div>
+        </div>
+      </section>
+
+      <section class="chapter" id="architecture">
+        <div class="chapter-head">
+          <span class="chapter-number">11 / معماری</span>
+          <div>
+            <h2>نقشه‌ی ساده‌ی اجزا</h2>
+            <p class="chapter-intro">کد کاملاً async است. پایگاه داده منبع حقیقت صف است و تمام ارسال‌های گروهی فقط از مسیر TelegramSender انجام می‌شوند.</p>
+          </div>
+        </div>
+        <div class="flow" aria-label="جریان معماری پروژه">
+          <div class="flow-item"><code>CLI / Saved</code><span>دریافت فرمان</span></div>
+          <div class="flow-item"><code>MessageService</code><span>اعتبارسنجی و ثبت</span></div>
+          <div class="flow-item"><code>SQLite Queue</code><span>منبع حقیقت</span></div>
+          <div class="flow-item"><code>QueueWorker</code><span>پردازش ترتیبی</span></div>
+          <div class="flow-item"><code>TelegramSender</code><span>تحویل به تلگرام</span></div>
+        </div>
+        <div class="grid-3">
+          <div class="card"><h3><code class="inline-code">app/db</code></h3><p>لایه‌ی کوچک aiosqlite و repositoryهای پایگاه داده.</p></div>
+          <div class="card"><h3><code class="inline-code">app/messaging</code></h3><p>سرویس پیام، صف، زمان‌بندی و idempotency.</p></div>
+          <div class="card"><h3><code class="inline-code">app/telegram</code></h3><p>اتصال، فهرست dialogها، دسته‌بندی خطا و ارسال.</p></div>
+          <div class="card"><h3><code class="inline-code">app/commands</code></h3><p>CLI و کنترلر فرمان‌های Saved Messages.</p></div>
+          <div class="card"><h3><code class="inline-code">app/services</code></h3><p>سلامت سرویس و خاموش‌شدن کنترل‌شده.</p></div>
+          <div class="card"><h3><code class="inline-code">tests</code></h3><p>تست‌ها با fake اجرا می‌شوند و به تلگرام واقعی وصل نمی‌شوند.</p></div>
+        </div>
+      </section>
+
+      <section class="chapter" id="troubleshooting">
+        <div class="chapter-head">
+          <span class="chapter-number">12 / عیب‌یابی</span>
+          <div>
+            <h2>وقتی چیزی طبق انتظار نیست</h2>
+            <p class="chapter-intro">ابتدا <code class="inline-code">status</code> و <code class="inline-code">queue list</code> را ببینید؛ سپس مورد متناظر را بررسی کنید.</p>
+          </div>
+        </div>
+        <div class="faq">
+          <details>
+            <summary>FloodWait یا SlowMode دیده می‌شود</summary>
+            <p>برنامه تا زمان اعلام‌شده‌ی تلگرام صبر می‌کند. وضعیت صف را بررسی کنید و برای دورزدن انتظار، سرویس را مرتب restart نکنید.</p>
+          </details>
+          <details>
+            <summary>session مجاز نیست یا اتصال متوقف شده</summary>
+            <p>روی ویندوز <code class="inline-code">python run.py start</code> را تعاملی اجرا کنید. روی Ubuntu ابتدا سرویس را متوقف و سپس <code class="inline-code">sudo -u sajadbot /usr/local/bin/sajadbot groups refresh</code> را اجرا کنید؛ پس از ورود موفق، سرویس را دوباره راه بیندازید.</p>
+          </details>
+          <details>
+            <summary>سرویس Ubuntu بالا نمی‌آید</summary>
+            <p>خروجی <code class="inline-code">sudo systemctl status sajadbot</code> و <code class="inline-code">sudo journalctl -u sajadbot -n 100 --no-pager</code> را ببینید. کامل‌بودن سه مقدار تلگرام در <code class="inline-code">/etc/sajadbot/sajadbot.env</code> و انجام ورود اولیه را بررسی کنید.</p>
+          </details>
+          <details>
+            <summary>خطای Database is locked می‌آید</summary>
+            <p>احتمالاً نمونه‌ی دیگری از برنامه فعال است. همان پردازش را پیدا و متوقف کنید؛ تلاش تهاجمی راه‌حل مناسبی نیست.</p>
+          </details>
+          <details>
+            <summary>فرآیند دیگری session را در اختیار دارد</summary>
+            <p>فقط یک <code class="inline-code">start</code> یا <code class="inline-code">groups refresh</code> می‌تواند session را استفاده کند. نمونه‌ی قبلی را ببندید.</p>
+          </details>
+          <details>
+            <summary>اجازه‌ی نوشتن در گروه وجود ندارد</summary>
+            <p>عضویت و مجوز ارسال حساب را در تلگرام بررسی کنید، سپس <code class="inline-code">groups refresh</code> را اجرا کنید. کار شکست می‌خورد و مقصد non-sendable ثبت می‌شود.</p>
+          </details>
+          <details>
+            <summary>شناسه یا alias گروه پیدا نمی‌شود</summary>
+            <p>ابتدا <code class="inline-code">groups refresh</code> و بعد <code class="inline-code">groups list</code> را اجرا کنید؛ از شناسه یا alias نمایش‌داده‌شده استفاده کنید.</p>
+          </details>
+        </div>
+      </section>
+
+      <section class="chapter" id="quality">
+        <div class="chapter-head">
+          <span class="chapter-number">13 / تست</span>
+          <div>
+            <h2>کنترل کیفیت توسعه</h2>
+            <p class="chapter-intro">تست‌ها از fakeها استفاده می‌کنند و نیازی به اعتبارنامه‌ی تلگرام ندارند.</p>
+          </div>
+        </div>
+        <div class="code-block">
+          <div class="code-label"><span class="terminal-dots"><i></i><i></i><i></i></span><span>Quality gates</span><button class="copy-button" type="button">کپی</button></div>
+          <pre><code>pytest
+ruff check .
+ruff format --check .</code></pre>
+        </div>
+      </section>
+
+      <section class="chapter final-check" id="checklist">
+        <div>
+          <p class="eyebrow" style="color:#8dd7dc">چک‌لیست نهایی</p>
+          <h2>آماده‌ی اجرا هستید</h2>
+          <ul class="check-list">
+            <li>محیط مجازی فعال و وابستگی‌ها نصب شده‌اند.</li>
+            <li>سه مقدار ضروری تلگرام در <code class="inline-code">.env</code> یا فایل تنظیمات سرور قرار دارند.</li>
+            <li>ورود اولیه انجام و session خصوصی نگه‌داری شده است.</li>
+            <li>گروه مقصد refresh، allow و ترجیحاً alias شده است.</li>
+            <li>برای بررسی امن می‌توانید موقتاً <code class="inline-code">DRY_RUN=true</code> بگذارید.</li>
+          </ul>
+        </div>
+        <div class="launch-command">
+          <small>شروع روی ویندوز / Ubuntu</small>
+          <code>python run.py start<br>sudo systemctl enable --now sajadbot</code>
+        </div>
+      </section>
+
+      <footer>
+        <p><strong>SajadBot</strong> — راهنمای فارسی نصب و عملیات</p>
+        <p>این سند بر اساس تنظیمات و فرمان‌های نسخه‌ی فعلی پروژه تهیه شده است. برای جزئیات کوتاه متنی، فایل README.md را نیز ببینید.</p>
+      </footer>
+    </main>
+
+    <nav class="side-nav" aria-label="فهرست راهنما">
+      <p class="side-nav-label">فهرست راهنما</p>
+      <ol>
+        <li><a href="#overview" data-step="00">معرفی و قابلیت‌ها</a></li>
+        <li><a href="#requirements" data-step="01">پیش‌نیازها</a></li>
+        <li><a href="#install" data-step="02">نصب و ورود اولیه</a></li>
+        <li><a href="#ubuntu-server" data-step="03">سرور Ubuntu و systemd</a></li>
+        <li><a href="#configuration" data-step="04">تنظیمات env</a></li>
+        <li><a href="#groups" data-step="05">مدیریت گروه‌ها</a></li>
+        <li><a href="#sending" data-step="06">ارسال و زمان‌بندی</a></li>
+        <li><a href="#saved-messages" data-step="07">Saved Messages</a></li>
+        <li><a href="#queue" data-step="08">صف و وضعیت‌ها</a></li>
+        <li><a href="#reliability" data-step="09">رفتار در خطا</a></li>
+        <li><a href="#security" data-step="10">امنیت</a></li>
+        <li><a href="#architecture" data-step="11">معماری</a></li>
+        <li><a href="#troubleshooting" data-step="12">عیب‌یابی</a></li>
+        <li><a href="#quality" data-step="13">تست و کیفیت</a></li>
+      </ol>
+      <p class="nav-note">این صفحه مستقل است و برای نمایش به اینترنت نیاز ندارد. فقط لینک دریافت API تلگرام خارجی است.</p>
+    </nav>
+  </div>
+
+  <script>
+    (() => {
+      const root = document.documentElement;
+      const themeToggle = document.getElementById('themeToggle');
+      const themeMeta = document.querySelector('meta[name="theme-color"]');
+      const savedTheme = localStorage.getItem('sajadbot-docs-theme');
+      const preferredTheme = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+
+      function applyTheme(theme) {
+        root.dataset.theme = theme;
+        themeMeta.setAttribute('content', theme === 'dark' ? '#111715' : '#f3efe5');
+        themeToggle.setAttribute('aria-label', theme === 'dark' ? 'فعال‌کردن پوسته روشن' : 'فعال‌کردن پوسته تیره');
+      }
+
+      applyTheme(savedTheme || preferredTheme);
+      themeToggle.addEventListener('click', () => {
+        const nextTheme = root.dataset.theme === 'dark' ? 'light' : 'dark';
+        applyTheme(nextTheme);
+        localStorage.setItem('sajadbot-docs-theme', nextTheme);
+      });
+
+      document.querySelectorAll('.copy-button').forEach((button) => {
+        button.addEventListener('click', async () => {
+          const code = button.closest('.code-block').querySelector('code').textContent;
+          try {
+            await navigator.clipboard.writeText(code);
+            const oldText = button.textContent;
+            button.textContent = 'کپی شد';
+            button.classList.add('copied');
+            window.setTimeout(() => {
+              button.textContent = oldText;
+              button.classList.remove('copied');
+            }, 1600);
+          } catch {
+            button.textContent = 'ناموفق';
+          }
+        });
+      });
+
+      const progress = document.getElementById('scrollProgress');
+      function updateProgress() {
+        const max = document.documentElement.scrollHeight - window.innerHeight;
+        progress.style.width = `${max > 0 ? (window.scrollY / max) * 100 : 0}%`;
+      }
+      updateProgress();
+      window.addEventListener('scroll', updateProgress, { passive: true });
+
+      const links = [...document.querySelectorAll('.side-nav a')];
+      const sections = links.map((link) => document.querySelector(link.getAttribute('href'))).filter(Boolean);
+      const observer = new IntersectionObserver((entries) => {
+        const visible = entries.filter((entry) => entry.isIntersecting).sort((a, b) => b.intersectionRatio - a.intersectionRatio)[0];
+        if (!visible) return;
+        links.forEach((link) => {
+          const active = link.getAttribute('href') === `#${visible.target.id}`;
+          link.classList.toggle('active', active);
+          if (active) link.setAttribute('aria-current', 'location');
+          else link.removeAttribute('aria-current');
+        });
+      }, { rootMargin: '-12% 0px -72% 0px', threshold: [0, 0.2, 0.6] });
+      sections.forEach((section) => observer.observe(section));
+    })();
+  </script>
+</body>
+</html>

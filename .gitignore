@@ -1,0 +1,60 @@
+# Environment and local secrets
+.env
+.env.*
+!.env.example
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Python bytecode and caches
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.pyright/
+.tox/
+.nox/
+
+# Test and coverage output
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+
+# Build and packaging output
+build/
+dist/
+*.egg-info/
+.eggs/
+
+# Runtime state and credentials
+*.session
+*.session-journal
+*.session-shm
+*.session-wal
+*.lock
+*.pid
+data/*.db
+data/*.db-*
+data/*.sqlite
+data/*.sqlite-*
+data/uploads/
+logs/*
+!logs/.gitkeep
+!data/.gitkeep
+!data/sessions/.gitkeep
+
+# JavaScript dependencies (used by local tooling)
+node_modules/
+
+# Editors and operating systems
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db

@@ -1,0 +1,27 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+readonly APP_DIR="/opt/sajadbot"
+readonly ENV_FILE="/etc/sajadbot/sajadbot.env"
+readonly PYTHON_BIN="${APP_DIR}/.venv/bin/python"
+
+if [[ ! -r "${ENV_FILE}" ]]; then
+  printf 'Cannot read %s. Run this command as the sajadbot user via sudo.\n' "${ENV_FILE}" >&2
+  exit 1
+fi
+
+if [[ ! -x "${PYTHON_BIN}" ]]; then
+  printf 'SajadBot is not installed at %s.\n' "${APP_DIR}" >&2
+  exit 1
+fi
+
+export HOME="/var/lib/sajadbot"
+export PYTHONDONTWRITEBYTECODE=1
+set -a
+# The installer creates this file with shell-compatible KEY=value entries.
+# shellcheck disable=SC1090
+source "${ENV_FILE}"
+set +a
+
+cd "${APP_DIR}"
+exec "${PYTHON_BIN}" "${APP_DIR}/run.py" "$@"
