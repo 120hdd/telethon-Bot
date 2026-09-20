@@ -140,16 +140,29 @@ With `CONTROL_SAVED_MESSAGES=true`, send these from the authenticated account to
 Messages:
 
 ```text
-.help
-.status
-.groups
-.send work
+/help
+/status
+/groups
+/groups all
+/groups refresh
+/groups add <public-link|@username|chat-id> [alias]
+/groups remove <chat-id|alias>
+/send work
 message text
-.schedule work 2026-09-16 14:30
+/schedule work 2026-09-16 14:30
 message text
-.queue
-.cancel <job-uuid>
+/queue
+/cancel <job-uuid>
+/logs [5-300 seconds]
+/logs stop
 ```
+
+Multiple groups can be allowed in one command by putting one reference and optional alias on each
+line after `/groups add`. Public `t.me` links and `@username` references are accepted. The client
+never auto-joins a private invite link: join with the personal account first, run `/groups refresh`,
+then allow the cached chat ID. `/logs` works with a personal account by repeatedly editing the
+command message; it shows only the bounded, redacted in-memory log view. Dot-prefixed legacy
+commands such as `.status` remain supported.
 
 Commands from groups, direct messages, other senders, or forwarded messages are ignored. The
 controller replies when a job is queued and again after delivery or failure.

@@ -21,7 +21,7 @@ logger = logging.getLogger(__name__)
 
 async def run_application(settings: Settings) -> None:
     settings.ensure_directories()
-    configure_logging(settings.log_level, settings.log_format, settings.log_path)
+    recent_logs = configure_logging(settings.log_level, settings.log_format, settings.log_path)
     process_lock = ProcessLock(settings.tg_session_path.with_suffix(".lock"))
     process_lock.acquire()
     database = Database(settings.database_path)
@@ -53,6 +53,7 @@ async def run_application(settings: Settings) -> None:
                 repository,
                 message_service,
                 account.telegram_user_id,
+                recent_logs,
             )
             controller.register()
 

@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import logging
 import sys
+from collections import deque
 from datetime import UTC, datetime
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
@@ -12,11 +13,45 @@ STANDARD_FIELDS = set(logging.makeLogRecord({}).__dict__) | {"message", "asctime
 SENSITIVE_KEYS = {
     "api_hash",
     "authorization_code",
+    "body",
+    "message_body",
     "otp",
     "password",
     "session",
     "session_auth_key",
 }
+
+
+class RecentLogHandler(logging.Handler):
+    """Keep a bounded, redacted log view for the Saved Messages controller."""
+
+    def __init__(self, capacity: int = 200) -> None:
+        super().__init__()
+        self._records: deque[str] = deque(maxlen=capacity)
+
+    def emit(self, record: logging.LogRecord) -> None:
+        try:
+            self._records.append(self.format(record))
+        except Exception:
+            self.handleError(record)
+
+    def snapshot(self, *, max_chars: int = 3200) -> str:
+        self.acquire()
+        try:
+            selected: list[str] = []
+            used = 0
+            for line in reversed(self._records):
+                line_size = len(line) + 1
+                if selected and used + line_size > max_chars:
+                    break
+                if line_size > max_chars:
+                    line = line[-max_chars:]
+                    line_size = len(line)
+                selected.append(line)
+                used += line_size
+            return "\n".join(reversed(selected))
+        finally:
+            self.release()
 
 
 class RedactionFilter(logging.Filter):
@@ -53,7 +88,7 @@ class ConsoleFormatter(logging.Formatter):
         return f"{self.formatTime(record)} {record.levelname:<8} {record.getMessage()}{suffix}"
 
 
-def configure_logging(level: str, log_format: str, log_path: Path) -> None:
+def configure_logging(level: str, log_format: str, log_path: Path) -> RecentLogHandler:
     root = logging.getLogger()
     root.handlers.clear()
     root.setLevel(level.upper())
@@ -70,5 +105,11 @@ def configure_logging(level: str, log_format: str, log_path: Path) -> None:
     file_handler.addFilter(redaction)
     file_handler.setFormatter(JsonFormatter() if log_format == "json" else ConsoleFormatter())
 
+    recent_handler = RecentLogHandler()
+    recent_handler.addFilter(redaction)
+    recent_handler.setFormatter(ConsoleFormatter())
+
     root.addHandler(console)
     root.addHandler(file_handler)
+    root.addHandler(recent_handler)
+    return recent_handler

@@ -1,12 +1,25 @@
+import logging
 from types import SimpleNamespace
 
 import pytest
 
 from app.commands.saved_messages import (
+    HELP_TEXT,
     SavedCommandKind,
+    SavedMessagesController,
     is_authorized_saved_message,
     parse_saved_command,
 )
+from app.logging_config import ConsoleFormatter, RecentLogHandler
+
+
+class EditingSender:
+    def __init__(self) -> None:
+        self.edits: list[tuple[int, str]] = []
+
+    async def edit_control_message(self, message_id: int, text: str) -> int:
+        self.edits.append((message_id, text))
+        return message_id
 
 
 def test_parses_send_command_body() -> None:
@@ -46,5 +59,68 @@ def test_accepts_own_non_forwarded_saved_message() -> None:
 
 
 def test_invalid_command_has_clear_error() -> None:
-    with pytest.raises(ValueError, match="Send .help"):
+    with pytest.raises(ValueError, match="Send /help"):
         parse_saved_command(".send work")
+
+
+def test_slash_help_is_supported() -> None:
+    command = parse_saved_command("/help")
+    assert command is not None
+    assert command.kind == SavedCommandKind.HELP
+
+
+def test_parses_multiple_groups_with_optional_aliases() -> None:
+    command = parse_saved_command(
+        "/groups add\n@public_group work\nhttps://t.me/team\n-100123 private_team"
+    )
+    assert command is not None
+    assert command.kind == SavedCommandKind.GROUP_ADD
+    assert [(item.reference, item.alias) for item in command.groups] == [
+        ("@public_group", "work"),
+        ("https://t.me/team", None),
+        ("-100123", "private_team"),
+    ]
+
+
+@pytest.mark.parametrize("duration", ["4", "301"])
+def test_rejects_out_of_range_log_stream_duration(duration: str) -> None:
+    with pytest.raises(ValueError, match="between 5 and 300"):
+        parse_saved_command(f"/logs {duration}")
+
+
+def test_help_documents_every_saved_messages_command() -> None:
+    for command in (
+        "/status",
+        "/groups",
+        "/groups refresh",
+        "/groups add",
+        "/groups remove",
+        "/send",
+        "/schedule",
+        "/queue",
+        "/cancel",
+        "/logs",
+        "/logs stop",
+    ):
+        assert command in HELP_TEXT
+
+
+async def test_log_stream_edits_the_command_message() -> None:
+    logs = RecentLogHandler()
+    logs.setFormatter(ConsoleFormatter())
+    logs.handle(logging.LogRecord("test", logging.INFO, __file__, 1, "worker_ready", (), None))
+    sender = EditingSender()
+    controller = SavedMessagesController(
+        None,  # type: ignore[arg-type]
+        sender,  # type: ignore[arg-type]
+        None,  # type: ignore[arg-type]
+        None,  # type: ignore[arg-type]
+        1,
+        logs,
+    )
+
+    await controller._stream_logs(77, 0)
+
+    assert sender.edits[0][0] == 77
+    assert "Logs (finished, 0s)" in sender.edits[0][1]
+    assert "worker_ready" in sender.edits[0][1]
