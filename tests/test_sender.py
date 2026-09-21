@@ -2,7 +2,7 @@ import asyncio
 
 import pytest
 
-from app.telegram.sender import TelegramSender
+from app.telegram.sender import DryRunMutationError, TelegramSender
 
 
 class CancellingClient:
@@ -56,3 +56,14 @@ async def test_sender_splits_long_control_replies_on_line_boundaries() -> None:
     assert message_id == 2
     assert len(client.messages) == 2
     assert all(len(message) <= 3800 for message in client.messages)
+
+
+@pytest.mark.asyncio
+async def test_dry_run_guard_cannot_send_telegram_messages() -> None:
+    client = RecordingClient()
+    sender = TelegramSender(client, dry_run=True)  # type: ignore[arg-type]
+
+    with pytest.raises(DryRunMutationError, match="send skipped"):
+        await sender.send_control_reply("must not be sent")
+
+    assert client.messages == []

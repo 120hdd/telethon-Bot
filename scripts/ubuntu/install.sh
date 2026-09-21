@@ -10,6 +10,7 @@ readonly CONFIG_DIR="/etc/sajadbot"
 readonly ENV_FILE="${CONFIG_DIR}/sajadbot.env"
 readonly SERVICE_FILE="/etc/systemd/system/sajadbot.service"
 readonly CLI_FILE="/usr/local/bin/sajadbot"
+readonly TGS_FILE="/usr/local/bin/tgs"
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 readonly SCRIPT_DIR
@@ -119,11 +120,13 @@ fi
 
 if [[ ! -e "${ENV_FILE}" ]]; then
   cat >"${ENV_FILE}" <<'EOF'
-TG_API_ID=
-TG_API_HASH=
-TG_PHONE=
-
-TG_SESSION_PATH=/var/lib/sajadbot/sessions/main
+TELEGRAM_PHONE=+10000000000
+TELEGRAM_API_MODE=auto
+TELEGRAM_API_ID=
+TELEGRAM_API_HASH=
+TELEGRAM_PUBLIC_API_ID=
+TELEGRAM_PUBLIC_API_HASH=
+TELEGRAM_SESSION_DIR=/var/lib/sajadbot/sessions
 DATABASE_URL=sqlite+aiosqlite:////var/lib/sajadbot/app.db
 UPLOADS_DIR=/var/lib/sajadbot/uploads
 LOG_PATH=/var/log/sajadbot/app.log
@@ -153,6 +156,8 @@ install -o root -g root -m 0644 \
   "${SOURCE_DIR}/deploy/ubuntu/sajadbot.service" "${SERVICE_FILE}"
 install -o root -g root -m 0755 \
   "${SOURCE_DIR}/scripts/ubuntu/sajadbot" "${CLI_FILE}"
+install -o root -g root -m 0755 \
+  "${SOURCE_DIR}/scripts/ubuntu/tgs.py" "${TGS_FILE}"
 
 systemctl daemon-reload
 
@@ -161,12 +166,16 @@ cat <<'EOF'
 SajadBot is installed. Complete these steps:
 
   1. sudoedit /etc/sajadbot/sajadbot.env
-  2. sudo -u sajadbot /usr/local/bin/sajadbot groups refresh
-  3. sudo -u sajadbot /usr/local/bin/sajadbot groups list
-  4. sudo -u sajadbot /usr/local/bin/sajadbot groups allow GROUP_ID
-  5. sudo systemctl enable --now sajadbot
-  6. sudo systemctl status sajadbot
+  2. sudo tgs auth login
+  3. sudo tgs auth status
+  4. sudo -u sajadbot /usr/local/bin/sajadbot groups refresh
+  5. sudo -u sajadbot /usr/local/bin/sajadbot groups allow GROUP_ID
+  6. sudo tgs enable --now
+  7. sudo tgs status
 
 Follow logs with:
-  sudo journalctl -u sajadbot -f
+  sudo tgs logs --follow
+
+See every management command with:
+  tgs -h
 EOF

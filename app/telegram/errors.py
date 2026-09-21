@@ -7,6 +7,10 @@ from enum import StrEnum
 from telethon import errors
 
 
+class TelegramAuthorizationError(RuntimeError):
+    pass
+
+
 class ErrorCategory(StrEnum):
     RETRYABLE_NETWORK = "RETRYABLE_NETWORK"
     RATE_LIMITED = "RATE_LIMITED"
@@ -49,12 +53,59 @@ CONTENT_ERRORS = {
     "FilePartsInvalidError",
 }
 AUTH_ERRORS = {
+    "AuthKeyNotFound",
     "UnauthorizedError",
     "AuthKeyError",
     "AuthKeyUnregisteredError",
     "SessionRevokedError",
     "UserDeactivatedError",
 }
+
+
+AUTHORIZATION_MESSAGES = {
+    "ApiIdInvalidError": "Configured Telegram API credentials are invalid.",
+    "ApiIdPublishedFloodError": (
+        "The selected public/shared Telegram API ID has been server-side limited by Telegram. "
+        "Do not retry automatically. Configure another valid API credential profile."
+    ),
+    "PhoneNumberInvalidError": "Telegram rejected the configured phone number.",
+    "PhoneNumberBannedError": "The Telegram account/phone number is banned.",
+    "PhoneNumberFloodError": "Too many login-code requests. Stop and wait before retrying.",
+    "PhonePasswordFloodError": "Too many password/login attempts. Stop and wait.",
+    "PhoneCodeInvalidError": "Incorrect Telegram login code.",
+    "PhoneCodeExpiredError": (
+        "The Telegram login code expired. Explicitly request a new login attempt."
+    ),
+    "SessionPasswordNeededError": "Telegram 2FA password is required.",
+    "AuthRestartError": "Telegram requested that the explicit login flow be restarted.",
+    "UpdateAppToLoginError": (
+        "Telegram rejected this login flow because the client library must be updated."
+    ),
+    "AuthKeyNotFound": (
+        "The session authorization key is no longer recognized. The session was not deleted. "
+        "Run the explicit auth reset command, then log in again."
+    ),
+    "UnauthorizedError": (
+        "The Telegram session is unauthorized. The session was not deleted; log in explicitly."
+    ),
+}
+
+
+def authorization_error_message(exc: BaseException) -> str | None:
+    error_type = type(exc).__name__
+    if error_type in AUTHORIZATION_MESSAGES:
+        return AUTHORIZATION_MESSAGES[error_type]
+    if isinstance(exc, errors.FloodWaitError):
+        return (
+            f"Telegram requires a {exc.seconds}-second wait. Do not retry until that wait expires."
+        )
+    if isinstance(exc, (asyncio.TimeoutError, TimeoutError, ConnectionError, OSError)):
+        return "Unable to connect to Telegram due to a network error. Retry later."
+    if isinstance(exc, errors.RPCError):
+        code = getattr(exc, "code", "unknown")
+        message = " ".join(str(exc).split())[:300]
+        return f"Unexpected Telegram RPC error ({error_type}, code={code}): {message}"
+    return None
 
 
 def classify_telegram_error(exc: BaseException) -> ClassifiedTelegramError:

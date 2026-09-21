@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 import asyncio
+import os
+import sys
 from collections.abc import Awaitable, Callable
+from importlib.metadata import version
 from pathlib import Path
 from typing import Annotated
 
@@ -19,16 +22,23 @@ from app.telegram.client import (
     AuthenticationRequiredError,
     SessionInUseError,
     TelegramConnection,
+    account_summary,
     create_client,
+    protect_session_storage,
+    session_exists,
+    session_file_path,
 )
 from app.telegram.dialogs import refresh_dialogs
+from app.telegram.errors import TelegramAuthorizationError, authorization_error_message
 from app.utils.locks import AlreadyRunningError, ProcessLock
 
 app = typer.Typer(help="Conservative Telegram personal-account messaging client.")
 groups_app = typer.Typer(help="Discover and manage allowed Telegram groups.")
 queue_app = typer.Typer(help="Inspect and manage persistent outgoing jobs.")
+auth_app = typer.Typer(help="Authenticate and inspect the Telegram user session.")
 app.add_typer(groups_app, name="groups")
 app.add_typer(queue_app, name="queue")
+app.add_typer(auth_app, name="auth")
 
 
 def _run[T](operation: Awaitable[T]) -> T:
@@ -41,6 +51,7 @@ def _run[T](operation: Awaitable[T]) -> T:
         AlreadyRunningError,
         SessionInUseError,
         AuthenticationRequiredError,
+        TelegramAuthorizationError,
         DatabaseLockedError,
     ) as exc:
         typer.secho(f"Error: {exc}", fg=typer.colors.RED, err=True)
@@ -51,10 +62,25 @@ class DuplicateError(ValueError):
     pass
 
 
+def _get_settings_or_exit() -> Settings:
+    try:
+        return get_settings()
+    except ValueError as exc:
+        typer.secho(f"Error: {exc}", fg=typer.colors.RED, err=True)
+        raise typer.Exit(1) from exc
+
+
+def _safe_preview(text: str | None, *, limit: int = 160) -> str:
+    if not text:
+        return "[media only]"
+    preview = " ".join(text.split())
+    return preview if len(preview) <= limit else f"{preview[: limit - 1]}…"
+
+
 async def _with_repository[T](
     operation: Callable[[Repository, Settings], Awaitable[T]],
 ) -> T:
-    settings = get_settings()
+    settings = _get_settings_or_exit()
     settings.ensure_directories()
     database = Database(settings.database_path)
     await database.connect()
@@ -67,10 +93,158 @@ async def _with_repository[T](
 
 
 @app.command()
-def start() -> None:
+def start(
+    dry_run: Annotated[
+        bool, typer.Option("--dry-run", help="Resolve metadata without any Telegram mutation")
+    ] = False,
+) -> None:
     """Start the Telegram connection, queue worker, and Saved Messages controller."""
-    settings = get_settings()
+    settings = _get_settings_or_exit()
+    if dry_run:
+        settings = settings.model_copy(update={"dry_run": True})
     _run(run_application(settings))
+
+
+@auth_app.command("login")
+def auth_login(
+    qr: Annotated[bool, typer.Option("--qr", help="Log in by scanning Telegram's QR URL")] = False,
+) -> None:
+    """Explicitly authorize the configured Telegram user account."""
+
+    async def operation(repository: Repository, settings: Settings) -> dict[str, str | int]:
+        credentials = settings.resolve_api_credentials()
+        session_path = settings.session_path_for(credentials.profile)
+        lock = ProcessLock(session_path.with_suffix(".lock"))
+        lock.acquire()
+        connection: TelegramConnection | None = None
+        try:
+            connection = TelegramConnection(
+                create_client(settings), settings, repository, notice=typer.echo
+            )
+            await connection.connect_and_authorize(interactive=True, qr=qr)
+            me = await connection.client.get_me()
+            if me is None:
+                raise AuthenticationRequiredError("Telegram did not return an authorized user.")
+            return account_summary(me, settings.telegram_phone)
+        finally:
+            if connection is not None:
+                await connection.disconnect()
+            lock.release()
+
+    summary = _run(_with_repository(operation))
+    typer.echo("Telegram authorization successful")
+    typer.echo(f"User ID: {summary['user_id']}")
+    typer.echo(f"Username: {summary['username']}")
+    typer.echo(f"Phone: {summary['phone']}")
+
+
+async def _telegram_status(settings: Settings) -> tuple[list[str], bool, bool]:
+    credentials = settings.resolve_api_credentials()
+    session_path = settings.session_path_for(credentials.profile)
+    existed = session_exists(session_path)
+    lines = [
+        f"API profile: {credentials.profile}",
+        f"API ID: {credentials.api_id}",
+        "API hash: configured (hidden)",
+        f"Session path: {session_file_path(session_path)}",
+        f"Session exists: {'yes' if existed else 'no'}",
+    ]
+    client = create_client(settings)
+    connected = False
+    authorized = False
+    try:
+        await client.connect()
+        connected = True
+        lines.append("Telegram connection: ok")
+        authorized = bool(await client.is_user_authorized())
+        lines.append(f"Authorized: {'yes' if authorized else 'no'}")
+        if authorized:
+            me = await client.get_me()
+            if me is not None:
+                summary = account_summary(me, settings.telegram_phone)
+                lines.extend(
+                    [
+                        f"User ID: {summary['user_id']}",
+                        f"Username: {summary['username']}",
+                        f"Phone: {summary['phone']}",
+                    ]
+                )
+    except Exception as exc:
+        safe_error = authorization_error_message(exc) or type(exc).__name__
+        lines.append(f"Telegram connection: error ({safe_error})")
+        lines.append("Authorized: unknown")
+    finally:
+        if client.is_connected():
+            await client.disconnect()
+        protect_session_storage(session_path)
+    return lines, connected, authorized
+
+
+@auth_app.command("status")
+def auth_status() -> None:
+    """Inspect the session without requesting a login code."""
+    settings = _get_settings_or_exit()
+    settings.ensure_directories()
+    lines, _, _ = _run(_telegram_status(settings))
+    typer.echo("\n".join(lines))
+
+
+@auth_app.command("reset")
+def auth_reset(
+    yes: Annotated[bool, typer.Option("--yes", help="Confirm deletion without a prompt")] = False,
+) -> None:
+    """Delete only the selected profile's session after explicit confirmation."""
+    settings = _get_settings_or_exit()
+    settings.ensure_directories()
+    credentials = settings.resolve_api_credentials()
+    session_path = settings.session_path_for(credentials.profile)
+    session_file = session_file_path(session_path)
+    if not yes and not typer.confirm(
+        f"Delete Telegram session for profile '{credentials.profile}' at {session_file}?"
+    ):
+        raise typer.Abort()
+    lock = ProcessLock(session_path.with_suffix(".lock"))
+    lock.acquire()
+    try:
+        removed = False
+        for path in (
+            session_file,
+            Path(f"{session_file}-journal"),
+            Path(f"{session_file}-shm"),
+            Path(f"{session_file}-wal"),
+        ):
+            if path.exists():
+                path.unlink()
+                removed = True
+    finally:
+        lock.release()
+    typer.echo("Telegram session removed." if removed else "No Telegram session file existed.")
+
+
+@app.command("doctor")
+def doctor() -> None:
+    """Check configuration, storage, Telethon, network, and authorization without mutations."""
+    settings = _get_settings_or_exit()
+    checks = [
+        f"Python: {sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}",
+        f"Python >= 3.12: {'ok' if sys.version_info >= (3, 12) else 'error'}",
+        f"Telethon: {version('telethon')}",
+    ]
+    try:
+        settings.ensure_directories()
+        credentials = settings.resolve_api_credentials()
+        settings.require_phone()
+        checks.append(f"Configuration: ok (API profile: {credentials.profile})")
+        writable = os.access(settings.session_directory, os.W_OK)
+        checks.append(f"Session directory writable: {'yes' if writable else 'no'}")
+        status_lines, connected, authorized = _run(_telegram_status(settings))
+        checks.extend(status_lines)
+        doctor_result = "ok" if connected and authorized and writable else "attention required"
+        checks.append(f"Doctor result: {doctor_result}")
+    except (ValueError, TelegramAuthorizationError) as exc:
+        checks.append(f"Configuration: error ({exc})")
+        checks.append("Doctor result: attention required")
+    typer.echo("\n".join(checks))
 
 
 @app.command()
@@ -106,12 +280,14 @@ def groups_refresh() -> None:
     async def operation(repository: Repository, settings: Settings) -> int:
         lock = ProcessLock(settings.tg_session_path.with_suffix(".lock"))
         lock.acquire()
-        connection = TelegramConnection(create_client(settings), settings, repository)
+        connection: TelegramConnection | None = None
         try:
-            await connection.connect_and_authorize()
+            connection = TelegramConnection(create_client(settings), settings, repository)
+            await connection.connect_and_authorize(interactive=False)
             return await refresh_dialogs(connection.client, repository)
         finally:
-            await connection.disconnect()
+            if connection is not None:
+                await connection.disconnect()
             lock.release()
 
     count = _run(_with_repository(operation))
@@ -201,8 +377,9 @@ def send_command(
         )
     elif result.job.status == JobStatus.DRY_RUN:
         typer.echo(
-            f"DRY RUN\nDestination: {result.job.destination_chat_id}\n"
-            f"Message:\n{result.job.text or '[media only]'}"
+            f"[DRY-RUN] target resolved: {result.job.destination_chat_id}\n"
+            f"[DRY-RUN] would send message: {_safe_preview(result.job.text)}\n"
+            "[DRY-RUN] send skipped"
         )
     else:
         typer.echo(f"Queued job {result.job.uuid} ({result.job.status})")

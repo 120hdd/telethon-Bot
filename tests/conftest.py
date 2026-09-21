@@ -16,8 +16,12 @@ from app.models import NewDestination
 def settings(tmp_path: Path) -> Settings:
     return Settings(
         _env_file=None,
+        TELEGRAM_API_MODE="custom",
+        TELEGRAM_API_ID=12345,
+        TELEGRAM_API_HASH="test-api-hash",
+        TELEGRAM_PHONE="+10000000000",
         DATABASE_URL=f"sqlite+aiosqlite:///{tmp_path / 'app.db'}",
-        TG_SESSION_PATH=tmp_path / "sessions" / "main",
+        TELEGRAM_SESSION_DIR=tmp_path / "sessions",
         UPLOADS_DIR=tmp_path / "uploads",
         LOG_PATH=tmp_path / "logs" / "app.log",
         LOCAL_TIMEZONE="UTC",

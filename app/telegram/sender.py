@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from typing import Protocol
 
 from telethon import TelegramClient
@@ -8,6 +9,11 @@ from app.models import MessageJob
 from app.telegram.errors import ClassifiedTelegramError, classify_telegram_error
 
 CONTROL_MESSAGE_LIMIT = 3800
+logger = logging.getLogger(__name__)
+
+
+class DryRunMutationError(RuntimeError):
+    pass
 
 
 def _control_chunks(text: str) -> list[str]:
@@ -34,10 +40,19 @@ class MessageSender(Protocol):
 class TelegramSender:
     """The only application component allowed to invoke Telegram send APIs."""
 
-    def __init__(self, client: TelegramClient) -> None:
+    def __init__(self, client: TelegramClient, *, dry_run: bool = False) -> None:
         self._client = client
+        self._dry_run = dry_run
+
+    def _ensure_mutation_allowed(self, operation: str) -> None:
+        if self._dry_run:
+            logger.info("dry_run_telegram_mutation_blocked", extra={"operation": operation})
+            raise DryRunMutationError(
+                f"[DRY-RUN] Telegram mutation blocked: {operation}; send skipped"
+            )
 
     async def send(self, job: MessageJob) -> int:
+        self._ensure_mutation_allowed("send_file" if job.media_path is not None else "send_message")
         try:
             if job.media_path is not None:
                 message = await self._client.send_file(
@@ -60,6 +75,7 @@ class TelegramSender:
         return int(message.id)
 
     async def send_control_reply(self, text: str) -> int:
+        self._ensure_mutation_allowed("send_message")
         try:
             message = None
             for chunk in _control_chunks(text):
@@ -70,6 +86,7 @@ class TelegramSender:
         return int(message.id)
 
     async def edit_control_message(self, message_id: int, text: str) -> int:
+        self._ensure_mutation_allowed("edit_message")
         try:
             message = await self._client.edit_message("me", message_id, text, parse_mode=None)
         except Exception as exc:

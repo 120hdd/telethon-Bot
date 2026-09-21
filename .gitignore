@@ -36,6 +36,7 @@ dist/
 *.session-journal
 *.session-shm
 *.session-wal
+data/sessions/
 *.lock
 *.pid
 data/*.db
@@ -46,7 +47,6 @@ data/uploads/
 logs/*
 !logs/.gitkeep
 !data/.gitkeep
-!data/sessions/.gitkeep
 
 # JavaScript dependencies (used by local tooling)
 node_modules/

@@ -40,12 +40,22 @@ async def run_application(settings: Settings) -> None:
 
         client = create_client(settings)
         connection = TelegramConnection(client, settings, repository)
-        account = await connection.connect_and_authorize()
-        await refresh_dialogs(client, repository)
+        account = await connection.connect_and_authorize(interactive=False)
+        destination_count = await refresh_dialogs(client, repository)
 
-        sender = TelegramSender(client)
+        sender = TelegramSender(client, dry_run=settings.dry_run)
         message_service = MessageService(repository, settings)
         worker = QueueWorker(repository, sender, settings)
+        if settings.dry_run:
+            logger.info(
+                "[DRY-RUN] account resolved",
+                extra={"user_id": account.telegram_user_id, "username": account.username},
+            )
+            logger.info(
+                "[DRY-RUN] target metadata refreshed; send skipped",
+                extra={"destination_count": destination_count},
+            )
+            return
         if settings.control_saved_messages:
             controller = SavedMessagesController(
                 client,

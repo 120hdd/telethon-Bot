@@ -806,9 +806,13 @@ python -m pip install -e ".[dev]"</code></pre>
               </div>
               <div class="code-block">
                 <div class="code-label"><span class="terminal-dots"><i></i><i></i><i></i></span><span>.env</span><button class="copy-button" type="button">کپی</button></div>
-                <pre><code>TG_API_ID=123456
-TG_API_HASH=your_api_hash
-TG_PHONE=+989121234567</code></pre>
+                <pre><code>TELEGRAM_PHONE=+10000000000
+TELEGRAM_API_MODE=auto
+TELEGRAM_API_ID=
+TELEGRAM_API_HASH=
+TELEGRAM_PUBLIC_API_ID=
+TELEGRAM_PUBLIC_API_HASH=
+TELEGRAM_SESSION_DIR=./data/sessions</code></pre>
               </div>
             </div>
           </article>
@@ -819,7 +823,10 @@ TG_PHONE=+989121234567</code></pre>
               <p>برنامه را اجرا کنید. بار اول، کد ورود تلگرام و در صورت فعال بودن، رمز دومرحله‌ای را تعاملی می‌پرسد.</p>
               <div class="code-block">
                 <div class="code-label"><span class="terminal-dots"><i></i><i></i><i></i></span><span>PowerShell</span><button class="copy-button" type="button">کپی</button></div>
-                <pre><code>python run.py start</code></pre>
+                <pre><code>python -m app auth login
+python -m app auth status
+python -m app start --dry-run
+python -m app start</code></pre>
               </div>
             </div>
           </article>
@@ -847,7 +854,8 @@ TG_PHONE=+989121234567</code></pre>
               <div class="code-block">
                 <div class="code-label"><span class="terminal-dots"><i></i><i></i><i></i></span><span>Ubuntu / Bash</span><button class="copy-button" type="button">کپی</button></div>
                 <pre><code>cd /path/to/SajadBot
-sudo bash scripts/ubuntu/install.sh</code></pre>
+sudo install -o root -g root -m 0755 scripts/ubuntu/tgs.py /usr/local/bin/tgs
+sudo tgs install .</code></pre>
               </div>
             </div>
           </article>
@@ -863,9 +871,13 @@ sudo bash scripts/ubuntu/install.sh</code></pre>
               </div>
               <div class="code-block">
                 <div class="code-label"><span class="terminal-dots"><i></i><i></i><i></i></span><span>/etc/sajadbot/sajadbot.env</span><button class="copy-button" type="button">کپی</button></div>
-                <pre><code>TG_API_ID=123456
-TG_API_HASH=your_api_hash
-TG_PHONE=+989121234567</code></pre>
+                <pre><code>TELEGRAM_PHONE=+10000000000
+TELEGRAM_API_MODE=auto
+TELEGRAM_API_ID=
+TELEGRAM_API_HASH=
+TELEGRAM_PUBLIC_API_ID=
+TELEGRAM_PUBLIC_API_HASH=
+TELEGRAM_SESSION_DIR=/var/lib/sajadbot/sessions</code></pre>
               </div>
             </div>
           </article>
@@ -877,7 +889,9 @@ TG_PHONE=+989121234567</code></pre>
               <p>این مرحله باید در ترمینال تعاملی انجام شود تا کد ورود و در صورت نیاز رمز دومرحله‌ای را وارد کنید. سپس شناسه‌ی گروه موردنظر را مجاز کنید.</p>
               <div class="code-block">
                 <div class="code-label"><span class="terminal-dots"><i></i><i></i><i></i></span><span>Ubuntu / Bash</span><button class="copy-button" type="button">کپی</button></div>
-                <pre><code>sudo -u sajadbot /usr/local/bin/sajadbot groups refresh
+                <pre><code>sudo tgs auth login
+sudo tgs auth status
+sudo -u sajadbot /usr/local/bin/sajadbot groups refresh
 sudo -u sajadbot /usr/local/bin/sajadbot groups list
 sudo -u sajadbot /usr/local/bin/sajadbot groups allow -1001234567890</code></pre>
               </div>
@@ -891,9 +905,9 @@ sudo -u sajadbot /usr/local/bin/sajadbot groups allow -1001234567890</code></pre
               <p>پس از ورود موفق، سرویس را فعال کنید تا همین حالا و پس از هر reboot اجرا شود. برنامه پورت ورودی باز نمی‌کند و فقط اتصال خروجی به تلگرام نیاز دارد.</p>
               <div class="code-block">
                 <div class="code-label"><span class="terminal-dots"><i></i><i></i><i></i></span><span>systemd</span><button class="copy-button" type="button">کپی</button></div>
-                <pre><code>sudo systemctl enable --now sajadbot
-sudo systemctl status sajadbot
-sudo journalctl -u sajadbot -f</code></pre>
+                <pre><code>sudo tgs enable --now
+sudo tgs status
+sudo tgs logs --follow</code></pre>
               </div>
             </div>
           </article>
@@ -913,12 +927,18 @@ sudo journalctl -u sajadbot -f</code></pre>
             <h3>مدیریت و به‌روزرسانی</h3>
             <div class="code-block">
               <div class="code-label"><span class="terminal-dots"><i></i><i></i><i></i></span><span>Ubuntu / Bash</span><button class="copy-button" type="button">کپی</button></div>
-              <pre><code># اجرای هر فرمان مدیریتی
-sudo -u sajadbot /usr/local/bin/sajadbot status
+              <pre><code># راهنمای اصلی و راهنمای هر ساب‌کامند
+tgs -h
+tgs update -h
+tgs auth login -h
 
-# پس از جایگزینی فایل‌های پروژه با نسخه‌ی جدید
-sudo bash scripts/ubuntu/install.sh
-sudo systemctl restart sajadbot</code></pre>
+# بررسی امن و مدیریت سرویس
+sudo tgs check
+sudo tgs restart
+sudo tgs logs --follow
+
+# آپدیت از checkout جدید؛ تنظیمات و داده‌ها حفظ می‌شوند
+sudo tgs update /path/to/newer/SajadBot</code></pre>
             </div>
           </div>
         </div>
@@ -940,10 +960,11 @@ sudo systemctl restart sajadbot</code></pre>
           <table>
             <thead><tr><th>متغیر</th><th>پیش‌فرض نمونه</th><th>کاربرد</th></tr></thead>
             <tbody>
-              <tr><td><code>TG_API_ID</code></td><td>—</td><td>شناسه‌ی عددی اپلیکیشن تلگرام؛ الزامی</td></tr>
-              <tr><td><code>TG_API_HASH</code></td><td>—</td><td>کلید محرمانه‌ی اپلیکیشن تلگرام؛ الزامی</td></tr>
-              <tr><td><code>TG_PHONE</code></td><td>—</td><td>شماره‌ی حساب با پیش‌شماره‌ی کشور؛ الزامی</td></tr>
-              <tr><td><code>TG_SESSION_PATH</code></td><td><code>./data/sessions/main</code></td><td>مسیر session احراز هویت Telethon</td></tr>
+              <tr><td><code>TELEGRAM_API_MODE</code></td><td><code>auto</code></td><td>انتخاب پروفایل custom یا public</td></tr>
+              <tr><td><code>TELEGRAM_API_ID / TELEGRAM_API_HASH</code></td><td>—</td><td>اعتبارنامه‌ی اپلیکیشن سفارشی تلگرام</td></tr>
+              <tr><td><code>TELEGRAM_PUBLIC_API_ID / TELEGRAM_PUBLIC_API_HASH</code></td><td>—</td><td>اعتبارنامه‌ی public/shared اختیاری</td></tr>
+              <tr><td><code>TELEGRAM_PHONE</code></td><td>—</td><td>شماره‌ی حساب با پیش‌شماره‌ی کشور؛ الزامی</td></tr>
+              <tr><td><code>TELEGRAM_SESSION_DIR</code></td><td><code>./data/sessions</code></td><td>پوشه‌ی sessionهای تفکیک‌شده بر اساس پروفایل</td></tr>
               <tr><td><code>DATABASE_URL</code></td><td><code>sqlite+aiosqlite:///./data/app.db</code></td><td>آدرس پایگاه داده‌ی صف و وضعیت‌ها</td></tr>
               <tr><td><code>UPLOADS_DIR</code></td><td><code>./data/uploads</code></td><td>محل کپی امن فایل‌های صف‌شده</td></tr>
               <tr><td><code>LOG_PATH</code></td><td><code>./logs/app.log</code></td><td>مسیر فایل گزارش برنامه</td></tr>
@@ -1203,7 +1224,7 @@ python run.py queue retry JOB_UUID</code></pre>
           </details>
           <details>
             <summary>session مجاز نیست یا اتصال متوقف شده</summary>
-            <p>روی ویندوز <code class="inline-code">python run.py start</code> را تعاملی اجرا کنید. روی Ubuntu ابتدا سرویس را متوقف و سپس <code class="inline-code">sudo -u sajadbot /usr/local/bin/sajadbot groups refresh</code> را اجرا کنید؛ پس از ورود موفق، سرویس را دوباره راه بیندازید.</p>
+            <p>روی ویندوز <code class="inline-code">python -m app auth login</code> را تعاملی اجرا کنید. روی Ubuntu ابتدا سرویس را متوقف و سپس <code class="inline-code">sudo -u sajadbot /usr/local/bin/sajadbot auth login</code> را اجرا کنید؛ پس از ورود موفق، سرویس را دوباره راه بیندازید.</p>
           </details>
           <details>
             <summary>سرویس Ubuntu بالا نمی‌آید</summary>
