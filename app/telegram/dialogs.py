@@ -7,6 +7,7 @@ from telethon import TelegramClient, types, utils
 from app.db.repositories import Repository
 from app.models import Destination, NewDestination
 from app.telegram.errors import ClassifiedTelegramError, classify_telegram_error
+from app.utils.time import to_db_time, utc_now
 
 logger = logging.getLogger(__name__)
 
@@ -23,7 +24,11 @@ def _can_send(entity: object) -> bool:
 
 def _chat_type(entity: object) -> str:
     if isinstance(entity, types.Channel):
-        return "supergroup" if entity.megagroup else "channel"
+        return (
+            "supergroup"
+            if bool(getattr(entity, "megagroup", False) or getattr(entity, "gigagroup", False))
+            else "channel"
+        )
     return "group"
 
 
@@ -100,6 +105,7 @@ async def allow_group(
 
 
 async def refresh_dialogs(client: TelegramClient, repository: Repository) -> int:
+    refresh_started_at = to_db_time(utc_now())
     discovered: list[NewDestination] = []
     async for dialog in client.iter_dialogs():
         if not dialog.is_group:
@@ -115,5 +121,6 @@ async def refresh_dialogs(client: TelegramClient, repository: Repository) -> int
             )
         )
     count = await repository.upsert_destinations(discovered)
+    await repository.set_state("last_dialog_refresh_started_at", refresh_started_at)
     logger.info("dialogs_refreshed", extra={"destination_count": count})
     return count

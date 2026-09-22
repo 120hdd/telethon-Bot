@@ -39,6 +39,7 @@ class MessageService:
         disable_link_preview: bool = False,
         force: bool = False,
         actor: str = "cli",
+        batch_id: str | None = None,
     ) -> QueueResult:
         destination = await self.repository.resolve_destination(destination_reference)
         if destination is None:
@@ -114,6 +115,7 @@ class MessageService:
             max_attempts=self.settings.max_queue_attempts,
             idempotency_key=key,
             requested_by=actor,
+            batch_id=batch_id,
         )
         try:
             job = await self.repository.create_job(new_job, actor=actor)
@@ -131,6 +133,7 @@ class MessageService:
                 "message_length": len(normalized_text),
                 "message_hash": key,
                 "status": job.status.value,
+                "batch_id": batch_id,
             },
         )
         if self.settings.log_message_bodies and self.settings.log_level.upper() == "DEBUG":

@@ -311,6 +311,36 @@ def command_auth(args: argparse.Namespace) -> int:
     )
 
 
+def command_send_all(args: argparse.Namespace) -> int:
+    return run_as_app_user(("sendall", "--text", args.text))
+
+
+def command_send_multi(args: argparse.Namespace) -> int:
+    delegated = ["sendmulti"]
+    for group in args.groups:
+        delegated.extend(("--group", group))
+    delegated.extend(("--text", args.text))
+    return run_as_app_user(tuple(delegated))
+
+
+def command_send_set(args: argparse.Namespace) -> int:
+    return run_as_app_user(("sendset", args.name, "--text", args.text))
+
+
+def command_batch(args: argparse.Namespace) -> int:
+    return run_as_app_user(("batch", args.batch_id))
+
+
+def command_group_set(args: argparse.Namespace) -> int:
+    delegated = ["groupset", args.group_set_action]
+    if args.group_set_action != "list":
+        delegated.append(args.name)
+    if args.group_set_action in {"add", "remove"}:
+        for group in args.groups:
+            delegated.extend(("--group", group))
+    return run_as_app_user(tuple(delegated))
+
+
 def command_version(_: argparse.Namespace) -> int:
     pyproject = APP_DIR / "pyproject.toml"
     if not pyproject.is_file():
@@ -400,6 +430,60 @@ def build_parser() -> argparse.ArgumentParser:
     auth_reset.add_argument("--yes", action="store_true", help="skip the confirmation prompt")
     add_stop_service_option(auth_reset)
     auth_reset.set_defaults(handler=command_auth, qr=False)
+
+    send_all = subcommands.add_parser(
+        "sendall", help="queue a message for every currently allowed group"
+    )
+    send_all.add_argument("-t", "--text", required=True, help="message text")
+    send_all.set_defaults(handler=command_send_all)
+
+    send_multi = subcommands.add_parser(
+        "sendmulti", help="atomically queue a message for selected allowed groups"
+    )
+    send_multi.add_argument(
+        "-g",
+        "--group",
+        dest="groups",
+        action="append",
+        required=True,
+        help="alias or peer ID; repeat this option or use comma-separated values",
+    )
+    send_multi.add_argument("-t", "--text", required=True, help="message text")
+    send_multi.set_defaults(handler=command_send_multi)
+
+    send_set = subcommands.add_parser(
+        "sendset", help="queue a message for eligible members of a Group Set"
+    )
+    send_set.add_argument("name", help="Group Set name")
+    send_set.add_argument("-t", "--text", required=True, help="message text")
+    send_set.set_defaults(handler=command_send_set)
+
+    batch = subcommands.add_parser("batch", help="show aggregate status for a bulk batch")
+    batch.add_argument("batch_id", help="batch UUID")
+    batch.set_defaults(handler=command_batch)
+
+    group_set = subcommands.add_parser("groupset", help="manage persistent Group Sets")
+    group_set_commands = group_set.add_subparsers(
+        dest="group_set_action", required=True, metavar="ACTION"
+    )
+    for action in ("create", "show", "delete"):
+        action_parser = group_set_commands.add_parser(action, help=f"{action} a Group Set")
+        action_parser.add_argument("name", help="Group Set name")
+        action_parser.set_defaults(handler=command_group_set, groups=[])
+    for action in ("add", "remove"):
+        action_parser = group_set_commands.add_parser(action, help=f"{action} Group Set members")
+        action_parser.add_argument("name", help="Group Set name")
+        action_parser.add_argument(
+            "-g",
+            "--group",
+            dest="groups",
+            action="append",
+            required=True,
+            help="alias or peer ID; repeat this option or use comma-separated values",
+        )
+        action_parser.set_defaults(handler=command_group_set)
+    group_set_list = group_set_commands.add_parser("list", help="list Group Sets")
+    group_set_list.set_defaults(handler=command_group_set, name=None, groups=[])
 
     version_parser = subcommands.add_parser("version", help="show installed versions")
     version_parser.set_defaults(handler=command_version)

@@ -8,7 +8,10 @@ import aiosqlite
 from app.db.database import Database
 from app.models import (
     Destination,
+    GroupSet,
+    GroupSetMember,
     JobStatus,
+    MessageBatch,
     MessageJob,
     NewDestination,
     NewJob,
@@ -65,7 +68,8 @@ CREATE TABLE IF NOT EXISTS message_jobs (
     last_error_type TEXT,
     last_error_message TEXT,
     idempotency_key TEXT NOT NULL,
-    requested_by TEXT NOT NULL DEFAULT 'cli'
+    requested_by TEXT NOT NULL DEFAULT 'cli',
+    batch_id TEXT
 );
 
 CREATE INDEX IF NOT EXISTS ix_jobs_status ON message_jobs(status);
@@ -92,6 +96,30 @@ CREATE TABLE IF NOT EXISTS app_state (
     value TEXT,
     updated_at TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS message_batches (
+    id TEXT PRIMARY KEY,
+    batch_type TEXT NOT NULL,
+    requested_count INTEGER NOT NULL,
+    created_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS group_sets (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL COLLATE NOCASE UNIQUE,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS group_set_members (
+    group_set_id INTEGER NOT NULL REFERENCES group_sets(id) ON DELETE CASCADE,
+    destination_peer_id INTEGER NOT NULL,
+    created_at TEXT NOT NULL,
+    UNIQUE(group_set_id, destination_peer_id)
+);
+
+CREATE INDEX IF NOT EXISTS ix_group_set_members_destination
+ON group_set_members(destination_peer_id);
 """
 
 
@@ -112,8 +140,19 @@ class Repository:
     async def initialize(self) -> None:
         async with self.db.transaction(immediate=True) as connection:
             await connection.executescript(SCHEMA)
+            columns = await connection.execute("PRAGMA table_info(message_jobs)")
+            column_names = {row["name"] for row in await columns.fetchall()}
+            if "batch_id" not in column_names:
+                await connection.execute("ALTER TABLE message_jobs ADD COLUMN batch_id TEXT")
+            await connection.execute(
+                "CREATE INDEX IF NOT EXISTS ix_jobs_batch ON message_jobs(batch_id)"
+            )
             await connection.execute(
                 "INSERT OR IGNORE INTO schema_migrations(version, applied_at) VALUES(1, ?)",
+                (to_db_time(utc_now()),),
+            )
+            await connection.execute(
+                "INSERT OR IGNORE INTO schema_migrations(version, applied_at) VALUES(2, ?)",
                 (to_db_time(utc_now()),),
             )
 
@@ -203,6 +242,174 @@ class Repository:
             )
         return self._destination(row) if row else None
 
+    async def create_group_set(self, name: str, *, actor: str = "cli") -> GroupSet:
+        now = to_db_time(utc_now())
+        try:
+            async with self.db.transaction(immediate=True) as connection:
+                cursor = await connection.execute(
+                    "INSERT INTO group_sets(name, created_at, updated_at) VALUES(?, ?, ?)",
+                    (name, now, now),
+                )
+                set_id = cursor.lastrowid
+        except aiosqlite.IntegrityError as exc:
+            raise ValueError(f"Group set already exists: {name}") from exc
+        assert set_id is not None
+        await self.add_audit(
+            "group_set_created", actor=actor, entity_type="group_set", entity_id=name
+        )
+        created = await self.get_group_set(name)
+        assert created is not None
+        return created
+
+    async def get_group_set(self, name: str) -> GroupSet | None:
+        row = await self._fetchone(
+            "SELECT * FROM group_sets WHERE name = ? COLLATE NOCASE", (name,)
+        )
+        return self._group_set(row) if row else None
+
+    async def list_group_sets(self) -> list[tuple[GroupSet, int]]:
+        rows = await self._fetchall(
+            """
+            SELECT gs.*, COUNT(gsm.destination_peer_id) AS member_count
+            FROM group_sets gs
+            LEFT JOIN group_set_members gsm ON gsm.group_set_id = gs.id
+            GROUP BY gs.id
+            ORDER BY gs.name COLLATE NOCASE
+            """
+        )
+        return [(self._group_set(row), int(row["member_count"])) for row in rows]
+
+    async def delete_group_set(self, name: str, *, actor: str = "cli") -> bool:
+        async with self.db.transaction(immediate=True) as connection:
+            cursor = await connection.execute(
+                "DELETE FROM group_sets WHERE name = ? COLLATE NOCASE", (name,)
+            )
+            deleted = cursor.rowcount == 1
+        if deleted:
+            await self.add_audit(
+                "group_set_deleted", actor=actor, entity_type="group_set", entity_id=name
+            )
+        return deleted
+
+    async def add_group_set_members(
+        self, group_set_id: int, destination_ids: Iterable[int], *, actor: str = "cli"
+    ) -> tuple[int, int]:
+        unique_ids = tuple(dict.fromkeys(destination_ids))
+        now = to_db_time(utc_now())
+        added = 0
+        async with self.db.transaction(immediate=True) as connection:
+            cursor = await connection.execute(
+                "SELECT name FROM group_sets WHERE id = ?", (group_set_id,)
+            )
+            row = await cursor.fetchone()
+            if row is None:
+                raise NotFoundError(f"Unknown group set: {group_set_id}")
+            for destination_id in unique_ids:
+                insert = await connection.execute(
+                    """
+                    INSERT OR IGNORE INTO group_set_members(
+                        group_set_id, destination_peer_id, created_at
+                    ) VALUES(?, ?, ?)
+                    """,
+                    (group_set_id, destination_id, now),
+                )
+                added += insert.rowcount
+            if added:
+                await connection.execute(
+                    "UPDATE group_sets SET updated_at = ? WHERE id = ?", (now, group_set_id)
+                )
+        await self.add_audit(
+            "group_set_members_added",
+            actor=actor,
+            entity_type="group_set",
+            entity_id=str(group_set_id),
+            details=f"added={added};already_present={len(unique_ids) - added}",
+        )
+        return added, len(unique_ids) - added
+
+    async def remove_group_set_members(
+        self, group_set_id: int, destination_ids: Iterable[int], *, actor: str = "cli"
+    ) -> tuple[int, int]:
+        unique_ids = tuple(dict.fromkeys(destination_ids))
+        now = to_db_time(utc_now())
+        removed = 0
+        async with self.db.transaction(immediate=True) as connection:
+            cursor = await connection.execute(
+                "SELECT name FROM group_sets WHERE id = ?", (group_set_id,)
+            )
+            if await cursor.fetchone() is None:
+                raise NotFoundError(f"Unknown group set: {group_set_id}")
+            for destination_id in unique_ids:
+                delete = await connection.execute(
+                    """
+                    DELETE FROM group_set_members
+                    WHERE group_set_id = ? AND destination_peer_id = ?
+                    """,
+                    (group_set_id, destination_id),
+                )
+                removed += delete.rowcount
+            if removed:
+                await connection.execute(
+                    "UPDATE group_sets SET updated_at = ? WHERE id = ?", (now, group_set_id)
+                )
+        await self.add_audit(
+            "group_set_members_removed",
+            actor=actor,
+            entity_type="group_set",
+            entity_id=str(group_set_id),
+            details=f"removed={removed};not_present={len(unique_ids) - removed}",
+        )
+        return removed, len(unique_ids) - removed
+
+    async def list_group_set_members(self, group_set_id: int) -> list[GroupSetMember]:
+        rows = await self._fetchall(
+            """
+            SELECT gsm.destination_peer_id, gsm.created_at,
+                   d.telegram_chat_id, d.title, d.username, d.alias, d.chat_type,
+                   d.enabled, d.can_send, d.last_seen_at
+            FROM group_set_members gsm
+            LEFT JOIN destinations d ON d.telegram_chat_id = gsm.destination_peer_id
+            WHERE gsm.group_set_id = ?
+            ORDER BY COALESCE(
+                d.alias, d.title, CAST(gsm.destination_peer_id AS TEXT)
+            ) COLLATE NOCASE
+            """,
+            (group_set_id,),
+        )
+        return [
+            GroupSetMember(
+                destination_peer_id=row["destination_peer_id"],
+                created_at=row["created_at"],
+                destination=self._destination(row) if row["telegram_chat_id"] is not None else None,
+            )
+            for row in rows
+        ]
+
+    async def create_batch(
+        self, batch_id: str, batch_type: str, requested_count: int
+    ) -> MessageBatch:
+        created_at = to_db_time(utc_now())
+        async with self.db.transaction(immediate=True) as connection:
+            await connection.execute(
+                """
+                INSERT INTO message_batches(id, batch_type, requested_count, created_at)
+                VALUES(?, ?, ?, ?)
+                """,
+                (batch_id, batch_type, requested_count, created_at),
+            )
+        return MessageBatch(batch_id, batch_type, requested_count, created_at)
+
+    async def get_batch(self, batch_id: str) -> MessageBatch | None:
+        row = await self._fetchone("SELECT * FROM message_batches WHERE id = ?", (batch_id,))
+        return self._batch(row) if row else None
+
+    async def batch_counts(self, batch_id: str) -> dict[str, int]:
+        rows = await self._fetchall(
+            "SELECT status, COUNT(*) AS count FROM message_jobs WHERE batch_id = ? GROUP BY status",
+            (batch_id,),
+        )
+        return {row["status"]: int(row["count"]) for row in rows}
+
     async def set_destination_enabled(self, reference: str | int, enabled: bool) -> Destination:
         destination = await self.resolve_destination(reference)
         if destination is None:
@@ -288,8 +495,8 @@ class Repository:
                     INSERT INTO message_jobs(
                         uuid, destination_chat_id, text, media_path, parse_mode,
                         disable_link_preview, scheduled_at, status, max_attempts,
-                        created_at, updated_at, idempotency_key, requested_by
-                    ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        created_at, updated_at, idempotency_key, requested_by, batch_id
+                    ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         job.uuid,
@@ -305,6 +512,7 @@ class Repository:
                         now,
                         job.idempotency_key,
                         job.requested_by,
+                        job.batch_id,
                     ),
                 )
                 job_id = cursor.lastrowid
@@ -595,6 +803,24 @@ class Repository:
         )
 
     @staticmethod
+    def _group_set(row: aiosqlite.Row) -> GroupSet:
+        return GroupSet(
+            id=row["id"],
+            name=row["name"],
+            created_at=row["created_at"],
+            updated_at=row["updated_at"],
+        )
+
+    @staticmethod
+    def _batch(row: aiosqlite.Row) -> MessageBatch:
+        return MessageBatch(
+            id=row["id"],
+            batch_type=row["batch_type"],
+            requested_count=row["requested_count"],
+            created_at=row["created_at"],
+        )
+
+    @staticmethod
     def _job(row: aiosqlite.Row) -> MessageJob:
         return MessageJob(
             id=row["id"],
@@ -618,4 +844,5 @@ class Repository:
             last_error_message=row["last_error_message"],
             idempotency_key=row["idempotency_key"],
             requested_by=row["requested_by"],
+            batch_id=row["batch_id"],
         )

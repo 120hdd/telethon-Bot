@@ -943,6 +943,25 @@ sudo tgs update /path/to/newer/SajadBot</code></pre>
           </div>
         </div>
 
+        <h3>ارسال گروهی با <span dir="ltr">tgs</span></h3>
+        <p>در نصب Ubuntu، <code class="inline-code">tgs</code> این فرمان‌ها را با همان کاربر محدود <code class="inline-code">sajadbot</code> و همان فایل تنظیمات اجرا می‌کند. این فرمان‌ها مستقیماً پیام تلگرام نمی‌فرستند؛ فقط از CLI نصب‌شده استفاده می‌کنند تا jobهای عادی را در دیتابیس صف بسازند، بنابراین لازم نیست سرویس فعال را متوقف کنید.</p>
+        <div class="code-block">
+          <div class="code-label"><span class="terminal-dots"><i></i><i></i><i></i></span><span>Ubuntu / tgs</span><button class="copy-button" type="button">کپی</button></div>
+          <pre><code>sudo tgs sendmulti -g sales -g customers --text "سلام"
+sudo tgs sendall --text "سلام به همه"
+sudo tgs groupset create customers
+sudo tgs groupset add customers -g shop1 -g shop2
+sudo tgs groupset remove customers -g shop2
+sudo tgs groupset list
+sudo tgs groupset show customers
+sudo tgs sendset customers --text "پیام مشتریان"
+sudo tgs batch BATCH_UUID
+sudo tgs groupset delete customers</code></pre>
+        </div>
+        <div class="callout">
+          <div><strong>رابط یکسان، مسیر امن</strong><p>گزینه‌ی <code class="inline-code">-g/--group</code> در <code class="inline-code">tgs sendmulti</code> و <code class="inline-code">tgs groupset add/remove</code> قابل تکرار است یا مقدار ویرگولی می‌پذیرد. اعتبارسنجی atomic، allowlist، canonical peer ID، batch و dry-run دقیقاً همان رفتار CLI اصلی و Saved Messages را دارند.</p></div>
+        </div>
+
         <div class="callout warn">
           <div><strong>از اجرای هم‌زمان CLI و سرویس خودداری کنید</strong><p>فرمان‌هایی مثل <code class="inline-code">groups refresh</code> که session تلگرام را باز می‌کنند باید وقتی سرویس متوقف است اجرا شوند: <code class="inline-code">sudo systemctl stop sajadbot</code>. فرمان‌های عادی صف و وضعیت به session دست نمی‌زنند.</p></div>
         </div>
@@ -1056,6 +1075,52 @@ python run.py groups allowed</code></pre>
         <div class="callout">
           <div><strong>جلوگیری از ارسال تکراری</strong><p>فرمان معادلِ تکراری به‌طور خودکار سرکوب می‌شود. فقط وقتی تکرار عمدی است گزینه‌ی <code class="inline-code">--force</code> را اضافه کنید.</p></div>
         </div>
+        <h3>ارسال گروهی از ترمینال</h3>
+        <p>فرمان‌های گروهی نیز فقط در SQLite کار می‌سازند؛ ارسال واقعی همچنان به‌ترتیب و توسط همان worker انجام می‌شود. هر مقصد یک job مستقل دارد و همه‌ی jobهای یک اجرای گروهی با یک <code class="inline-code">batch UUID</code> مشترک مرتبط می‌شوند.</p>
+        <div class="code-block">
+          <div class="code-label"><span>PowerShell</span><button class="copy-button" type="button">کپی</button></div>
+          <pre><code>python run.py sendmulti -g sales -g customers --text "سلام"
+python run.py sendmulti -g "sales,customers,-1001234567890" --text "سلام"
+python run.py sendall --text "سلام به همه"
+python run.py sendset customers --text "پیام مشتریان"
+python run.py batch BATCH_UUID</code></pre>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>فرمان ترمینال</th><th>توضیح</th></tr></thead>
+            <tbody>
+              <tr><td><code>sendmulti -g GROUP --text MESSAGE</code></td><td>همه‌ی مقصدهای انتخابی را ابتدا به‌صورت کامل اعتبارسنجی می‌کند. اگر حتی یک alias یا شناسه ناشناخته، غیرفعال یا غیرگروه باشد هیچ jobی ساخته نمی‌شود. گزینه‌ی <code>-g</code> قابل تکرار است و مقدارهای جداشده با ویرگول را نیز می‌پذیرد.</td></tr>
+              <tr><td><code>sendall --text MESSAGE</code></td><td>از همه‌ی گروه‌های مجاز و قابل ارسال یک snapshot می‌گیرد و برای هر peer ID یک job مستقل می‌سازد. مقصدهای غیرفعال، stale یا غیرگروه نادیده گرفته می‌شوند.</td></tr>
+              <tr><td><code>sendset NAME --text MESSAGE</code></td><td>به اعضای فعلی و مجاز Group Set پیام می‌فرستد. عضو غیرفعال یا گم‌شده از مجموعه حذف نمی‌شود، اما در این ارسال skip می‌شود.</td></tr>
+              <tr><td><code>batch BATCH_UUID</code></td><td>تعداد کل مقصدها و وضعیت‌های pending، sent، failed، cancelled و dry-run یک batch را نشان می‌دهد.</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <h3>Group Set در ترمینال</h3>
+        <p>Group Set یک فهرست نام‌دار و پایدار از شناسه‌های canonical تلگرام است. تغییر title، username یا alias عضویت را خراب نمی‌کند. نام مجموعه ۱ تا ۶۴ کاراکتر و شامل حرف انگلیسی، عدد، <code class="inline-code">_</code> یا <code class="inline-code">-</code> است و بزرگی/کوچکی حروف تفاوتی ندارد.</p>
+        <div class="code-block">
+          <div class="code-label"><span>PowerShell</span><button class="copy-button" type="button">کپی</button></div>
+          <pre><code>python run.py groupset create customers
+python run.py groupset add customers -g shop1 -g shop2
+python run.py groupset add customers -g "shop3,shop4"
+python run.py groupset remove customers -g shop2
+python run.py groupset list
+python run.py groupset show customers
+python run.py groupset delete customers</code></pre>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>فرمان Group Set</th><th>توضیح</th></tr></thead>
+            <tbody>
+              <tr><td><code>groupset create NAME</code></td><td>یک مجموعه‌ی خالی می‌سازد. ساخت نام تکراری خطاست.</td></tr>
+              <tr><td><code>groupset add NAME -g GROUP</code></td><td>alias یا peer ID کش‌شده را به شناسه‌ی canonical تبدیل و به مجموعه اضافه می‌کند. اعتبارسنجی atomic است؛ اگر یکی از ورودی‌ها نامعتبر باشد هیچ عضوی اضافه نمی‌شود.</td></tr>
+              <tr><td><code>groupset remove NAME -g GROUP</code></td><td>یک یا چند عضو را حذف می‌کند. عضوِ از قبل غایب خطا ایجاد نمی‌کند؛ برای مقصد stale می‌توان peer ID ذخیره‌شده را وارد کرد.</td></tr>
+              <tr><td><code>groupset list</code></td><td>نام همه‌ی مجموعه‌ها و تعداد اعضای هرکدام را نشان می‌دهد.</td></tr>
+              <tr><td><code>groupset show NAME</code></td><td>اعضا را با وضعیت فعلی <code>allowed</code>، <code>disabled</code> یا <code>missing</code> نشان می‌دهد.</td></tr>
+              <tr><td><code>groupset delete NAME</code></td><td>خود مجموعه و membershipهای آن را حذف می‌کند؛ رکورد مقصدها و jobهای صف حذف نمی‌شوند.</td></tr>
+            </tbody>
+          </table>
+        </div>
         <div class="callout">
           <div><strong>فایل زمان‌بندی‌شده مستقل می‌ماند</strong><p>رسانه‌ی صف‌شده به مسیر <code class="inline-code">data/uploads/&lt;job-uuid&gt;/</code> کپی می‌شود؛ پس جابه‌جایی فایل اصلی باعث خرابی ارسال آینده نمی‌شود.</p></div>
         </div>
@@ -1071,15 +1136,64 @@ python run.py groups allowed</code></pre>
         </div>
         <div class="code-block">
           <div class="code-label"><span class="terminal-dots"><i></i><i></i><i></i></span><span>Saved Messages</span><button class="copy-button" type="button">کپی</button></div>
-          <pre><code>.help
-.status
-.groups
-.send work
+          <pre><code>/help
+/status
+/groups
+/groups all
+/groups refresh
+/groups add @public_group work
+/groups remove work
+/send work
 متن پیام
-.schedule work 2026-09-20 14:30
+/sendmulti sales,customers,vip سلام
+/sendall سلام
+/groupset create customers
+/groupset add customers shop1 shop2 shop3
+/groupset remove customers shop2
+/groupset list
+/groupset show customers
+/groupset delete customers
+/sendset customers سلام
+/batch BATCH_UUID
+/schedule work 2026-09-20 14:30
 متن پیام
-.queue
-.cancel &lt;job-uuid&gt;</code></pre>
+/queue
+/cancel &lt;job-uuid&gt;
+/logs 60
+/logs stop</code></pre>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>فرمان Saved Messages</th><th>توضیح</th></tr></thead>
+            <tbody>
+              <tr><td><code>/help</code></td><td>راهنمای کوتاه همه‌ی فرمان‌های کنترل را در Saved Messages نمایش می‌دهد.</td></tr>
+              <tr><td><code>/status</code></td><td>وضعیت اتصال، آخرین ارسال موفق و شمار jobهای صف را نشان می‌دهد.</td></tr>
+              <tr><td><code>/groups</code></td><td>فقط گروه‌های مجاز فعلی را با alias، title و peer ID فهرست می‌کند.</td></tr>
+              <tr><td><code>/groups all</code></td><td>همه‌ی مقصدهای کش‌شده، چه مجاز و چه غیرفعال، را نمایش می‌دهد.</td></tr>
+              <tr><td><code>/groups refresh</code></td><td>dialogهای فعلی حساب را دوباره اسکن می‌کند. گروه تازه به‌صورت خودکار مجاز نمی‌شود و مقصدی که دیگر در refresh دیده نشود برای ارسال مجموعه‌ای missing محسوب می‌شود.</td></tr>
+              <tr><td><code>/groups add TARGET [ALIAS]</code></td><td>یک گروه عضو‌شده را با لینک عمومی، username، شناسه یا alias کش‌شده resolve و مجاز می‌کند. برای افزودن چند گروه، هرکدام را در یک خط بعد از <code>/groups add</code> بنویسید.</td></tr>
+              <tr><td><code>/groups remove TARGET</code></td><td>مقصد را غیرفعال و jobهای ارسال‌نشده‌ی آن را لغو می‌کند.</td></tr>
+              <tr><td><code>/send TARGET</code></td><td>متن خطوط بعدی را برای یک گروه مجاز صف می‌کند.</td></tr>
+              <tr><td><code>/schedule TARGET DATETIME</code></td><td>متن خطوط بعدی را برای زمان ISO محلی یا offsetدار صف می‌کند.</td></tr>
+              <tr><td><code>/sendmulti G1,G2 MESSAGE</code></td><td>همه‌ی مقصدهای صریح را قبل از ساخت job اعتبارسنجی می‌کند؛ یک ورودی نامعتبر کل عملیات را بدون صف‌شدن پیام متوقف می‌کند. ورودی‌های هم‌هویت با peer ID deduplicate می‌شوند.</td></tr>
+              <tr><td><code>/sendall MESSAGE</code></td><td>پیام را برای snapshot همه‌ی گروه‌های مجاز صف می‌کند؛ هر گروه job مستقل و قابل retry خود را دارد.</td></tr>
+              <tr><td><code>/groupset create NAME</code></td><td>یک Group Set پایدار و خالی می‌سازد.</td></tr>
+              <tr><td><code>/groupset add NAME GROUP...</code></td><td>یک یا چند alias/peer ID را به‌صورت atomic به مجموعه اضافه می‌کند؛ فاصله و ویرگول هر دو جداکننده‌اند.</td></tr>
+              <tr><td><code>/groupset remove NAME GROUP...</code></td><td>اعضا را بدون دست‌زدن به allow/deny مقصد حذف می‌کند.</td></tr>
+              <tr><td><code>/groupset list</code></td><td>مجموعه‌ها و تعداد اعضای هرکدام را فهرست می‌کند.</td></tr>
+              <tr><td><code>/groupset show NAME</code></td><td>اعضا و وضعیت فعلی allowed، disabled یا missing را نشان می‌دهد.</td></tr>
+              <tr><td><code>/groupset delete NAME</code></td><td>مجموعه و membershipهایش را حذف می‌کند، نه خود گروه‌ها یا jobها را.</td></tr>
+              <tr><td><code>/sendset NAME MESSAGE</code></td><td>برای اعضای مجاز و موجود مجموعه job می‌سازد و اعضای disabled/missing را بدون حذف از مجموعه skip می‌کند.</td></tr>
+              <tr><td><code>/batch BATCH_UUID</code></td><td>وضعیت تجمعی jobهای یک ارسال گروهی را نمایش می‌دهد.</td></tr>
+              <tr><td><code>/queue</code></td><td>حداکثر ۲۰ job فعال یا نیازمند بررسی را نمایش می‌دهد.</td></tr>
+              <tr><td><code>/cancel JOB_UUID</code></td><td>یک job ارسال‌نشده را لغو می‌کند.</td></tr>
+              <tr><td><code>/logs [SECONDS]</code></td><td>نمای redacted لاگ را بین ۵ تا ۳۰۰ ثانیه با ویرایش همان پیام زنده نگه می‌دارد؛ مقدار پیش‌فرض ۶۰ ثانیه است.</td></tr>
+              <tr><td><code>/logs stop</code></td><td>نمای زنده‌ی لاگ را متوقف می‌کند.</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="callout">
+          <div><strong>پیشوند فرمان</strong><p>در نسخه‌ی فعلی <code class="inline-code">/</code> پیشوند پیشنهادی است؛ شکل قدیمی با نقطه مثل <code class="inline-code">.sendall</code> نیز همچنان کار می‌کند.</p></div>
         </div>
         <div class="grid-2">
           <div class="card">
@@ -1088,7 +1202,7 @@ python run.py groups allowed</code></pre>
           </div>
           <div class="card">
             <h3>چه پاسخی می‌گیرید؟</h3>
-            <p>پس از صف‌شدن کار پاسخ اولیه دریافت می‌کنید و بعد از تحویل یا شکست نیز وضعیت نهایی اعلام می‌شود.</p>
+            <p>ارسال تکی پس از صف‌شدن و سپس تحویل/شکست پاسخ می‌دهد. فرمان گروهی فقط یک خلاصه‌ی اولیه با batch UUID می‌فرستد؛ وضعیت بعدی را با <code class="inline-code">/batch</code> ببینید.</p>
           </div>
         </div>
       </section>

@@ -91,6 +91,7 @@ class NewJob:
     max_attempts: int
     idempotency_key: str
     requested_by: str
+    batch_id: str | None = None
 
 
 @dataclass(slots=True, frozen=True)
@@ -116,6 +117,30 @@ class MessageJob:
     last_error_message: str | None
     idempotency_key: str
     requested_by: str
+    batch_id: str | None
+
+
+@dataclass(slots=True, frozen=True)
+class GroupSet:
+    id: int
+    name: str
+    created_at: str
+    updated_at: str
+
+
+@dataclass(slots=True, frozen=True)
+class GroupSetMember:
+    destination_peer_id: int
+    created_at: str
+    destination: Destination | None
+
+
+@dataclass(slots=True, frozen=True)
+class MessageBatch:
+    id: str
+    batch_type: str
+    requested_count: int
+    created_at: str
 
 
 @dataclass(slots=True, frozen=True)

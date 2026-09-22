@@ -39,6 +39,17 @@ def load_tgs() -> ModuleType:
         ["auth", "login", "-h"],
         ["auth", "status", "-h"],
         ["auth", "reset", "-h"],
+        ["sendall", "-h"],
+        ["sendmulti", "-h"],
+        ["sendset", "-h"],
+        ["batch", "-h"],
+        ["groupset", "-h"],
+        ["groupset", "create", "-h"],
+        ["groupset", "add", "-h"],
+        ["groupset", "remove", "-h"],
+        ["groupset", "list", "-h"],
+        ["groupset", "show", "-h"],
+        ["groupset", "delete", "-h"],
         ["version", "-h"],
     ],
 )
@@ -110,3 +121,60 @@ def test_session_command_refuses_to_compete_with_active_service(monkeypatch) -> 
 
     with pytest.raises(tgs.CommandError, match="--stop-service"):
         tgs.with_session_access(False, lambda: 0)
+
+
+def test_bulk_commands_delegate_to_installed_application_cli(monkeypatch) -> None:
+    tgs = load_tgs()
+    delegated: list[tuple[str, ...]] = []
+
+    def fake_run_as_app_user(arguments) -> int:
+        delegated.append(tuple(arguments))
+        return 0
+
+    monkeypatch.setattr(tgs, "run_as_app_user", fake_run_as_app_user)
+
+    assert tgs.main(["sendall", "--text", "hello all"]) == 0
+    assert tgs.main(["sendmulti", "-g", "one,two", "-g", "-1003", "-t", "hello"]) == 0
+    assert tgs.main(["sendset", "vip", "--text", "hello set"]) == 0
+    assert tgs.main(["batch", "batch-uuid"]) == 0
+
+    assert delegated == [
+        ("sendall", "--text", "hello all"),
+        (
+            "sendmulti",
+            "--group",
+            "one,two",
+            "--group",
+            "-1003",
+            "--text",
+            "hello",
+        ),
+        ("sendset", "vip", "--text", "hello set"),
+        ("batch", "batch-uuid"),
+    ]
+
+
+def test_group_set_commands_delegate_to_installed_application_cli(monkeypatch) -> None:
+    tgs = load_tgs()
+    delegated: list[tuple[str, ...]] = []
+    monkeypatch.setattr(
+        tgs,
+        "run_as_app_user",
+        lambda arguments: delegated.append(tuple(arguments)) or 0,
+    )
+
+    assert tgs.main(["groupset", "create", "ads"]) == 0
+    assert tgs.main(["groupset", "add", "ads", "-g", "one,two"]) == 0
+    assert tgs.main(["groupset", "remove", "ads", "-g", "two"]) == 0
+    assert tgs.main(["groupset", "list"]) == 0
+    assert tgs.main(["groupset", "show", "ads"]) == 0
+    assert tgs.main(["groupset", "delete", "ads"]) == 0
+
+    assert delegated == [
+        ("groupset", "create", "ads"),
+        ("groupset", "add", "ads", "--group", "one,two"),
+        ("groupset", "remove", "ads", "--group", "two"),
+        ("groupset", "list"),
+        ("groupset", "show", "ads"),
+        ("groupset", "delete", "ads"),
+    ]

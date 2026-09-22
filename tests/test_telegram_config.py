@@ -59,6 +59,25 @@ def test_auto_falls_back_to_public() -> None:
     assert credentials.profile == "public"
 
 
+def test_blank_optional_api_ids_from_env_are_treated_as_unset(tmp_path: Path) -> None:
+    env_file = tmp_path / ".env"
+    env_file.write_text(
+        "TELEGRAM_API_MODE=auto\n"
+        "TELEGRAM_API_ID=\n"
+        "TELEGRAM_API_HASH=\n"
+        "TELEGRAM_PUBLIC_API_ID=\n"
+        "TELEGRAM_PUBLIC_API_HASH=\n",
+        encoding="utf-8",
+    )
+
+    settings = Settings(_env_file=env_file)
+
+    assert settings.telegram_api_id is None
+    assert settings.telegram_public_api_id is None
+    with pytest.raises(ValueError, match="auto fallback"):
+        settings.resolve_api_credentials()
+
+
 @pytest.mark.parametrize(
     "values",
     [

@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import math
+import re
 from dataclasses import dataclass
 from enum import StrEnum
 
@@ -10,8 +11,11 @@ from telethon import TelegramClient, events
 
 from app.db.repositories import NotFoundError, Repository
 from app.logging_config import RecentLogHandler
+from app.messaging.bulk import BulkEnqueueResult, BulkMessageService
+from app.messaging.group_sets import GroupSetService
 from app.messaging.scheduler import parse_schedule
 from app.messaging.service import MessageService
+from app.messaging.targets import TargetResolver
 from app.models import JobStatus
 from app.services.health import format_health, get_health
 from app.telegram.dialogs import allow_group, refresh_dialogs
@@ -35,6 +39,16 @@ class SavedCommandKind(StrEnum):
     GROUP_REMOVE = "group_remove"
     LOGS = "logs"
     LOGS_STOP = "logs_stop"
+    SEND_ALL = "sendall"
+    SEND_MULTI = "sendmulti"
+    GROUP_SET_CREATE = "groupset_create"
+    GROUP_SET_ADD = "groupset_add"
+    GROUP_SET_REMOVE = "groupset_remove"
+    GROUP_SET_LIST = "groupset_list"
+    GROUP_SET_SHOW = "groupset_show"
+    GROUP_SET_DELETE = "groupset_delete"
+    SEND_SET = "sendset"
+    BATCH = "batch"
 
 
 @dataclass(slots=True, frozen=True)
@@ -50,6 +64,7 @@ class SavedCommand:
     text: str | None = None
     schedule: str | None = None
     groups: tuple[GroupSpec, ...] = ()
+    targets: tuple[str, ...] = ()
 
 
 def _group_spec(raw: str) -> GroupSpec:
@@ -57,6 +72,33 @@ def _group_spec(raw: str) -> GroupSpec:
     if not parts:
         raise ValueError("Each group line must contain a link, @username, ID, or cached alias.")
     return GroupSpec(parts[0], parts[1] if len(parts) == 2 else None)
+
+
+def _message_from_tail(inline: str, body: str) -> str:
+    message = "\n".join(part for part in (inline.strip(), body) if part).strip()
+    if not message:
+        raise ValueError("Message text must not be empty.")
+    return message
+
+
+def _split_multi_send(tail: str, body: str) -> tuple[tuple[str, ...], str]:
+    match = re.match(r"^\s*([^\s,]+(?:\s*,\s*[^\s,]+)*)\s+(.+)$", tail, re.DOTALL)
+    if match is None:
+        if not body:
+            raise ValueError("Use /sendmulti GROUP1,GROUP2 MESSAGE.")
+        target_expression = tail
+        message = body
+    else:
+        target_expression = match.group(1)
+        message = _message_from_tail(match.group(2), body)
+    targets = tuple(item.strip() for item in target_expression.split(",") if item.strip())
+    if not targets:
+        raise ValueError("Add at least one target.")
+    return targets, message.strip()
+
+
+def _split_target_list(raw: str) -> tuple[str, ...]:
+    return tuple(item for item in re.split(r"[\s,]+", raw.strip()) if item)
 
 
 def parse_saved_command(raw_text: str) -> SavedCommand | None:
@@ -93,6 +135,50 @@ def parse_saved_command(raw_text: str) -> SavedCommand | None:
             )
     if name == "/send" and len(parts) == 2 and body:
         return SavedCommand(SavedCommandKind.SEND, argument=parts[1], text=body)
+    if name == "/sendall":
+        inline = header[len(parts[0]) :]
+        return SavedCommand(SavedCommandKind.SEND_ALL, text=_message_from_tail(inline, body))
+    if name == "/sendmulti":
+        tail = header[len(parts[0]) :].strip()
+        targets, message = _split_multi_send(tail, body)
+        return SavedCommand(SavedCommandKind.SEND_MULTI, text=message, targets=targets)
+    if name == "/sendset":
+        command_parts = header.split(maxsplit=2)
+        if len(command_parts) < 2:
+            raise ValueError("Use /sendset NAME MESSAGE.")
+        inline_message = command_parts[2] if len(command_parts) == 3 else ""
+        return SavedCommand(
+            SavedCommandKind.SEND_SET,
+            argument=command_parts[1],
+            text=_message_from_tail(inline_message, body),
+        )
+    if name == "/groupset":
+        command_parts = header.split(maxsplit=3)
+        if len(command_parts) < 2:
+            raise ValueError("Use /groupset create|add|remove|list|show|delete.")
+        action = command_parts[1].lower()
+        if action == "list" and len(command_parts) == 2 and not body:
+            return SavedCommand(SavedCommandKind.GROUP_SET_LIST)
+        if action in {"create", "show", "delete"} and len(command_parts) == 3 and not body:
+            kind = {
+                "create": SavedCommandKind.GROUP_SET_CREATE,
+                "show": SavedCommandKind.GROUP_SET_SHOW,
+                "delete": SavedCommandKind.GROUP_SET_DELETE,
+            }[action]
+            return SavedCommand(kind, argument=command_parts[2])
+        if action in {"add", "remove"} and len(command_parts) >= 4 and not body:
+            targets = _split_target_list(command_parts[3])
+            if not targets:
+                raise ValueError("Add at least one target.")
+            kind = (
+                SavedCommandKind.GROUP_SET_ADD
+                if action == "add"
+                else SavedCommandKind.GROUP_SET_REMOVE
+            )
+            return SavedCommand(kind, argument=command_parts[2], targets=targets)
+        raise ValueError("Invalid /groupset syntax. Send /help for examples.")
+    if name == "/batch" and len(parts) == 2 and not body:
+        return SavedCommand(SavedCommandKind.BATCH, argument=parts[1])
     if name == "/schedule" and len(parts) == 3 and body:
         return SavedCommand(
             SavedCommandKind.SCHEDULE,
@@ -176,6 +262,25 @@ alias اختیاری است و فقط حرف، عدد و _ می‌پذیرد.
 با eventهای Saved Messages اجرا می‌شوند."""
 
 
+HELP_TEXT += """
+
+Bulk and Group Sets:
+/sendmulti GROUP1,GROUP2 MESSAGE - queue one job per selected allowed group
+/sendall MESSAGE - queue one job for every currently allowed group
+/groupset create NAME - create a persistent set
+/groupset add NAME GROUP... - add cached groups (spaces or commas)
+/groupset remove NAME GROUP... - remove groups
+/groupset list - list saved sets
+/groupset show NAME - show members and current eligibility
+/groupset delete NAME - delete a set
+/sendset NAME MESSAGE - queue all currently eligible members
+/batch BATCH_ID - show delivery status for a bulk batch
+
+Dot-prefixed forms such as .sendall remain supported. Bulk delivery uses the normal
+durable queue, sequential worker, rate limiter, retries, and dry-run behavior.
+"""
+
+
 class SavedMessagesController:
     def __init__(
         self,
@@ -185,6 +290,9 @@ class SavedMessagesController:
         message_service: MessageService,
         account_id: int,
         recent_logs: RecentLogHandler | None = None,
+        target_resolver: TargetResolver | None = None,
+        bulk_service: BulkMessageService | None = None,
+        group_set_service: GroupSetService | None = None,
     ) -> None:
         self.client = client
         self.sender = sender
@@ -192,6 +300,11 @@ class SavedMessagesController:
         self.message_service = message_service
         self.account_id = account_id
         self.recent_logs = recent_logs
+        self.target_resolver = target_resolver or TargetResolver(repository)
+        self.bulk_service = bulk_service or BulkMessageService(repository, message_service)
+        self.group_set_service = group_set_service or GroupSetService(
+            repository, self.target_resolver
+        )
         self._log_stream_task: asyncio.Task[None] | None = None
 
     def register(self) -> None:
@@ -278,6 +391,157 @@ class SavedMessagesController:
             assert command.argument is not None
             destination = await self.repository.set_destination_enabled(command.argument, False)
             return f"disabled\n{destination.title} | {destination.telegram_chat_id}"
+        if command.kind == SavedCommandKind.GROUP_SET_CREATE:
+            assert command.argument is not None
+            try:
+                group_set = await self.group_set_service.create(command.argument)
+            except ValueError as exc:
+                if "already exists" in str(exc):
+                    normalized = self.group_set_service.normalize_name(command.argument)
+                    return f"❌ Group set already exists: {normalized}"
+                raise
+            return f"✅ Group set created: {group_set.name}"
+        if command.kind == SavedCommandKind.GROUP_SET_ADD:
+            assert command.argument is not None
+            result = await self.group_set_service.add(command.argument, command.targets)
+            return (
+                f"✅ Group set updated: {result.name}\n\n"
+                f"Added: {result.changed}\nAlready present: {result.unchanged}"
+            )
+        if command.kind == SavedCommandKind.GROUP_SET_REMOVE:
+            assert command.argument is not None
+            result = await self.group_set_service.remove(command.argument, command.targets)
+            return (
+                f"✅ Group set updated: {result.name}\n\n"
+                f"Removed: {result.changed}\nNot present: {result.unchanged}"
+            )
+        if command.kind == SavedCommandKind.GROUP_SET_LIST:
+            group_sets = await self.group_set_service.list()
+            if not group_sets:
+                return "No group sets found."
+            return "📁 Group Sets\n\n" + "\n".join(
+                f"{group_set.name} — {count} groups" for group_set, count in group_sets
+            )
+        if command.kind == SavedCommandKind.GROUP_SET_SHOW:
+            assert command.argument is not None
+            snapshot = await self.group_set_service.snapshot(command.argument)
+            lines: list[str] = []
+            for view in snapshot.members:
+                member = view.member
+                destination = member.destination
+                if view.status == "missing":
+                    lines.append(f"⚠️ {member.destination_peer_id} — destination missing")
+                elif view.status == "allowed" and destination is not None:
+                    lines.append(
+                        f"✅ {destination.alias or destination.telegram_chat_id} — "
+                        f"{destination.title}"
+                    )
+                elif destination is not None:
+                    lines.append(
+                        f"⛔ {destination.alias or destination.telegram_chat_id} — "
+                        f"{destination.title}"
+                    )
+            heading = f"📁 {snapshot.group_set.name}\n\n{len(snapshot.members)} groups"
+            details = "\n".join(lines)
+            summary = (
+                f"Allowed: {snapshot.allowed}\nDisabled: {snapshot.disabled}\n"
+                f"Missing: {snapshot.missing}"
+            )
+            return "\n\n".join(part for part in (heading, details, summary) if part)
+        if command.kind == SavedCommandKind.GROUP_SET_DELETE:
+            assert command.argument is not None
+            normalized = self.group_set_service.normalize_name(command.argument)
+            try:
+                await self.group_set_service.delete(normalized)
+            except NotFoundError:
+                return f"❌ Group set not found: {normalized}"
+            return f"✅ Group set deleted: {normalized}"
+        if command.kind == SavedCommandKind.SEND_ALL:
+            assert command.text is not None
+            resolution = await self.target_resolver.allowed_groups()
+            if not resolution.destinations:
+                return "⚠️ No allowed groups found.\nNothing was queued."
+            result = await self.bulk_service.enqueue_bulk(
+                resolution.destinations,
+                text=command.text,
+                batch_type="sendall",
+                requested=len(resolution.destinations)
+                + resolution.duplicates
+                + len(resolution.errors),
+                duplicates=resolution.duplicates,
+                skipped=len(resolution.errors),
+            )
+            return self._bulk_summary("✅ Send-all queued", result, targets=True)
+        if command.kind == SavedCommandKind.SEND_MULTI:
+            assert command.text is not None
+            resolution = await self.target_resolver.resolve_targets(command.targets)
+            if resolution.errors:
+                invalid = "\n".join(
+                    f"- {item.reference} — {item.reason}" for item in resolution.errors
+                )
+                logger.info(
+                    "bulk_validation_failed",
+                    extra={
+                        "command_type": "sendmulti",
+                        "requested": len(command.targets),
+                        "failure_count": len(resolution.errors),
+                    },
+                )
+                return (
+                    f"❌ Multi-send aborted.\n\nInvalid targets:\n{invalid}\n\n"
+                    "No messages were queued."
+                )
+            result = await self.bulk_service.enqueue_bulk(
+                resolution.destinations,
+                text=command.text,
+                batch_type="sendmulti",
+                requested=len(command.targets),
+                duplicates=resolution.duplicates,
+            )
+            return self._bulk_summary("✅ Multi-send queued", result, targets=True)
+        if command.kind == SavedCommandKind.SEND_SET:
+            assert command.argument is not None and command.text is not None
+            snapshot = await self.group_set_service.snapshot(command.argument)
+            if not snapshot.eligible:
+                return (
+                    f"⚠️ No eligible groups in set: {snapshot.group_set.name}.\nNothing was queued."
+                )
+            result = await self.bulk_service.enqueue_bulk(
+                snapshot.eligible,
+                text=command.text,
+                batch_type="sendset",
+                requested=len(snapshot.members),
+                duplicates=snapshot.duplicates,
+                skipped=snapshot.disabled + snapshot.missing,
+            )
+            return (
+                f"✅ Group set queued: {snapshot.group_set.name}\n\n"
+                f"Members: {len(snapshot.members)}\nEligible: {result.eligible}\n"
+                f"Queued: {result.queued}\nDisabled: {snapshot.disabled}\n"
+                f"Missing: {snapshot.missing}\n"
+                f"Duplicates: {result.duplicates}\nFailed: {result.failed}\n"
+                f"Batch: {result.batch_id}"
+            )
+        if command.kind == SavedCommandKind.BATCH:
+            assert command.argument is not None
+            batch, counts = await self.bulk_service.batch_status(command.argument)
+            pending_statuses = {
+                JobStatus.PENDING,
+                JobStatus.SCHEDULED,
+                JobStatus.PROCESSING,
+                JobStatus.RETRY,
+                JobStatus.WAITING_RATE_LIMIT,
+                JobStatus.REVIEW_REQUIRED,
+            }
+            pending = sum(counts.get(status.value, 0) for status in pending_statuses)
+            return (
+                f"Batch: {batch.id}\n\nTargets: {batch.requested_count}\n"
+                f"Queued: {sum(counts.values())}\nPending: {pending}\n"
+                f"Sent: {counts.get(JobStatus.SENT.value, 0)}\n"
+                f"Failed: {counts.get(JobStatus.FAILED.value, 0)}\n"
+                f"Cancelled: {counts.get(JobStatus.CANCELLED.value, 0)}\n"
+                f"Dry run: {counts.get(JobStatus.DRY_RUN.value, 0)}"
+            )
         if command.kind == SavedCommandKind.QUEUE:
             jobs = await self.repository.list_jobs(
                 {
@@ -324,6 +588,15 @@ class SavedMessagesController:
                 f"destination: {destination.alias or destination.title}"
             )
         raise AssertionError(f"Unhandled command: {command.kind}")
+
+    @staticmethod
+    def _bulk_summary(heading: str, result: BulkEnqueueResult, *, targets: bool = False) -> str:
+        first_count = f"Targets: {result.requested}\n" if targets else ""
+        return (
+            f"{heading}\n\n{first_count}Queued: {result.queued}\n"
+            f"Duplicates: {result.duplicates}\nSkipped: {result.skipped}\n"
+            f"Failed: {result.failed}\nBatch: {result.batch_id}"
+        )
 
     async def _start_log_stream(self, event: object, duration: int) -> None:
         if self.recent_logs is None:

@@ -101,8 +101,47 @@ def test_help_documents_every_saved_messages_command() -> None:
         "/cancel",
         "/logs",
         "/logs stop",
+        "/sendmulti",
+        "/sendall",
+        "/groupset create",
+        "/groupset add",
+        "/groupset remove",
+        "/groupset list",
+        "/groupset show",
+        "/groupset delete",
+        "/sendset",
+        "/batch",
     ):
         assert command in HELP_TEXT
+
+
+@pytest.mark.parametrize(
+    ("raw", "kind", "argument", "targets"),
+    [
+        ("/groupset create Ads", SavedCommandKind.GROUP_SET_CREATE, "Ads", ()),
+        (
+            ".groupset add ads one,two three",
+            SavedCommandKind.GROUP_SET_ADD,
+            "ads",
+            ("one", "two", "three"),
+        ),
+        (
+            "/groupset remove ads one two",
+            SavedCommandKind.GROUP_SET_REMOVE,
+            "ads",
+            ("one", "two"),
+        ),
+        ("/groupset list", SavedCommandKind.GROUP_SET_LIST, None, ()),
+        ("/groupset show ads", SavedCommandKind.GROUP_SET_SHOW, "ads", ()),
+        ("/groupset delete ads", SavedCommandKind.GROUP_SET_DELETE, "ads", ()),
+    ],
+)
+def test_parses_group_set_commands(raw, kind, argument, targets) -> None:
+    command = parse_saved_command(raw)
+    assert command is not None
+    assert command.kind == kind
+    assert command.argument == argument
+    assert command.targets == targets
 
 
 async def test_log_stream_edits_the_command_message() -> None:

@@ -101,6 +101,13 @@ class Settings(BaseSettings):
             raise ValueError("TELEGRAM_API_MODE must be 'auto', 'custom', or 'public'")
         return normalized
 
+    @field_validator("telegram_api_id", "telegram_public_api_id", mode="before")
+    @classmethod
+    def empty_api_id_is_unset(cls, value: object) -> object:
+        if isinstance(value, str) and not value.strip():
+            return None
+        return value
+
     @field_validator("telegram_phone")
     @classmethod
     def validate_phone(cls, value: str | None) -> str | None:

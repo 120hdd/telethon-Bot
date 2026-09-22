@@ -148,9 +148,22 @@ sudo tgs auth login --stop-service
 sudo tgs auth login --qr --stop-service
 sudo tgs auth status --stop-service
 
+# Queue bulk work through the installed application CLI
+sudo tgs sendmulti -g sales -g customers --text "Hello"
+sudo tgs sendall --text "Hello everyone"
+sudo tgs groupset create customers
+sudo tgs groupset add customers -g shop1 -g shop2
+sudo tgs groupset show customers
+sudo tgs sendset customers --text "Hello customers"
+sudo tgs batch BATCH_UUID
+
 # Installed versions
 tgs version
 ```
+
+The `tgs` bulk and Group Set commands run the installed application CLI as the unprivileged
+`sajadbot` user. They only enqueue or inspect SQLite state and do not require stopping the active
+service or opening the Telethon session.
 
 `tgs update` installs from the checkout you provide; it never performs an implicit `git pull` and
 does not replace `/etc/sajadbot/sajadbot.env`, sessions, the application database, uploads, or logs.
@@ -194,7 +207,18 @@ queued until the next start.
 python run.py send --group work --text "Deployment completed."
 python run.py send --group work --file ".\report.pdf" --text "Weekly report"
 python run.py send --group work --text "Reminder" --at "2026-09-16 14:30"
+python run.py sendmulti -g sales -g customers --text "Hello"
+python run.py sendall --text "Hello everyone"
+python run.py groupset create customers
+python run.py groupset add customers -g shop1 -g shop2
+python run.py groupset show customers
+python run.py sendset customers --text "Hello customers"
+python run.py batch BATCH_UUID
 ```
+
+For `sendmulti` and `groupset add/remove`, repeat `-g` or pass comma-separated aliases/peer IDs.
+The terminal commands use the same resolver, persistent Group Sets, batch records, and normal queue
+path as their Saved Messages equivalents.
 
 Naive schedule values use `LOCAL_TIMEZONE`; offset-aware ISO values are also accepted. Times are
 stored as UTC. Repeating an equivalent command is suppressed. Use `--force` only when an intentional
@@ -236,6 +260,16 @@ Messages:
 /groups remove <chat-id|alias>
 /send work
 message text
+/sendmulti sales,customers,vip سلام
+/sendall سلام
+/groupset create customers
+/groupset add customers shop1 shop2 shop3
+/groupset remove customers shop2
+/groupset list
+/groupset show customers
+/groupset delete customers
+/sendset customers سلام
+/batch <batch-uuid>
 /schedule work 2026-09-16 14:30
 message text
 /queue
@@ -251,8 +285,24 @@ then allow the cached chat ID. `/logs` works with a personal account by repeated
 command message; it shows only the bounded, redacted in-memory log view. Dot-prefixed legacy
 commands such as `.status` remain supported.
 
-Commands from groups, direct messages, other senders, or forwarded messages are ignored. The
-controller replies when a job is queued and again after delivery or failure.
+`/sendmulti` validates every selected target before it queues anything. Aliases and cached numeric
+Telegram peer IDs are accepted, whitespace around commas is ignored, and aliases/IDs resolving to
+the same group are deduplicated by canonical peer ID. `/sendall` snapshots every currently allowed,
+sendable group. Both commands create one normal queue job per destination and correlate those jobs
+with a batch UUID; `/batch` shows the current per-job outcomes.
+
+Group Sets are persistent, case-insensitively named collections (`1-64` letters, numbers, `_`, or
+`-`). Membership stores canonical Telegram peer IDs, so title, username, and alias changes do not
+break a set. Disabling a destination does not remove it from a set: `/groupset show` reports its
+current state and `/sendset` skips disabled members or groups absent from the latest dialog refresh.
+Stale memberships are retained for inspection and manual removal. All bulk sends use the existing
+SQLite queue, sequential worker, pacing, FloodWait/SlowMode handling, retries,
+destination-aware idempotency, and dry-run job state. There is no direct or parallel Telegram send
+path.
+
+Commands from groups, direct messages, other senders, or forwarded messages are ignored. Single
+sends reply when queued and again after delivery or failure. Bulk commands return one aggregate
+queue response; use `/batch` for later per-status totals.
 
 ## Reliability Behavior
 

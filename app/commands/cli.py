@@ -14,8 +14,11 @@ from app.config import Settings, get_settings
 from app.db.database import Database, DatabaseLockedError
 from app.db.repositories import NotFoundError, Repository
 from app.main import run_application
+from app.messaging.bulk import BulkEnqueueResult, BulkMessageService
+from app.messaging.group_sets import GroupSetService
 from app.messaging.scheduler import parse_schedule
 from app.messaging.service import MessageService
+from app.messaging.targets import TargetResolver
 from app.models import JobStatus
 from app.services.health import format_health, get_health
 from app.telegram.client import (
@@ -36,9 +39,11 @@ app = typer.Typer(help="Conservative Telegram personal-account messaging client.
 groups_app = typer.Typer(help="Discover and manage allowed Telegram groups.")
 queue_app = typer.Typer(help="Inspect and manage persistent outgoing jobs.")
 auth_app = typer.Typer(help="Authenticate and inspect the Telegram user session.")
+group_sets_app = typer.Typer(help="Manage persistent named sets of Telegram groups.")
 app.add_typer(groups_app, name="groups")
 app.add_typer(queue_app, name="queue")
 app.add_typer(auth_app, name="auth")
+app.add_typer(group_sets_app, name="groupset")
 
 
 def _run[T](operation: Awaitable[T]) -> T:
@@ -75,6 +80,29 @@ def _safe_preview(text: str | None, *, limit: int = 160) -> str:
         return "[media only]"
     preview = " ".join(text.split())
     return preview if len(preview) <= limit else f"{preview[: limit - 1]}…"
+
+
+def _split_cli_targets(values: list[str]) -> tuple[str, ...]:
+    targets = tuple(
+        target.strip() for value in values for target in value.split(",") if target.strip()
+    )
+    if not targets:
+        raise ValueError("At least one group target is required.")
+    return targets
+
+
+def _bulk_output(heading: str, result: BulkEnqueueResult, *, dry_run: bool) -> str:
+    prefix = "[DRY-RUN] " if dry_run else ""
+    return (
+        f"{prefix}{heading}\n"
+        f"Targets: {result.requested}\n"
+        f"Eligible: {result.eligible}\n"
+        f"Queued: {result.queued}\n"
+        f"Duplicates: {result.duplicates}\n"
+        f"Skipped: {result.skipped}\n"
+        f"Failed: {result.failed}\n"
+        f"Batch: {result.batch_id}"
+    )
 
 
 async def _with_repository[T](
@@ -342,6 +370,126 @@ def groups_alias(group: str, alias: str) -> None:
     typer.echo(f"Alias {destination.alias} -> {destination.telegram_chat_id}")
 
 
+@group_sets_app.command("create")
+def group_set_create(name: str) -> None:
+    """Create a persistent, case-insensitively named group set."""
+
+    async def operation(repository: Repository, _: Settings) -> object:
+        resolver = TargetResolver(repository)
+        return await GroupSetService(repository, resolver).create(name, actor="cli")
+
+    group_set = _run(_with_repository(operation))
+    typer.echo(f"Group set created: {group_set.name}")
+
+
+@group_sets_app.command("add")
+def group_set_add(
+    name: str,
+    groups: Annotated[
+        list[str],
+        typer.Option(
+            "--group",
+            "-g",
+            help="Cached alias or peer ID; repeat the option or separate values with commas.",
+        ),
+    ],
+) -> None:
+    """Atomically add one or more cached Telegram groups to a set."""
+    targets = _split_cli_targets(groups)
+
+    async def operation(repository: Repository, _: Settings) -> object:
+        resolver = TargetResolver(repository)
+        return await GroupSetService(repository, resolver).add(name, targets, actor="cli")
+
+    result = _run(_with_repository(operation))
+    typer.echo(
+        f"Group set updated: {result.name}\n"
+        f"Added: {result.changed}\nAlready present: {result.unchanged}"
+    )
+
+
+@group_sets_app.command("remove")
+def group_set_remove(
+    name: str,
+    groups: Annotated[
+        list[str],
+        typer.Option(
+            "--group",
+            "-g",
+            help="Cached alias or peer ID; repeat the option or separate values with commas.",
+        ),
+    ],
+) -> None:
+    """Atomically remove one or more groups from a set."""
+    targets = _split_cli_targets(groups)
+
+    async def operation(repository: Repository, _: Settings) -> object:
+        resolver = TargetResolver(repository)
+        return await GroupSetService(repository, resolver).remove(name, targets, actor="cli")
+
+    result = _run(_with_repository(operation))
+    typer.echo(
+        f"Group set updated: {result.name}\n"
+        f"Removed: {result.changed}\nNot present: {result.unchanged}"
+    )
+
+
+@group_sets_app.command("list")
+def group_set_list() -> None:
+    """List persistent Group Sets and their member counts."""
+
+    async def operation(repository: Repository, _: Settings) -> list[tuple[object, int]]:
+        resolver = TargetResolver(repository)
+        return await GroupSetService(repository, resolver).list()
+
+    group_sets = _run(_with_repository(operation))
+    if not group_sets:
+        typer.echo("No group sets found.")
+        return
+    for group_set, count in group_sets:
+        typer.echo(f"{group_set.name}  {count} groups")
+
+
+@group_sets_app.command("show")
+def group_set_show(name: str) -> None:
+    """Show a set's canonical members and current eligibility."""
+
+    async def operation(repository: Repository, _: Settings) -> object:
+        resolver = TargetResolver(repository)
+        return await GroupSetService(repository, resolver).snapshot(name)
+
+    snapshot = _run(_with_repository(operation))
+    typer.echo(f"Group set: {snapshot.group_set.name} ({len(snapshot.members)} groups)")
+    for view in snapshot.members:
+        member = view.member
+        destination = member.destination
+        label = (
+            destination.alias or destination.title
+            if destination is not None
+            else str(member.destination_peer_id)
+        )
+        typer.echo(f"{view.status:<9} {member.destination_peer_id:<22} {label}")
+    typer.echo(
+        f"Allowed: {snapshot.allowed}\nDisabled: {snapshot.disabled}\n"
+        f"Missing: {snapshot.missing}\nDuplicates: {snapshot.duplicates}"
+    )
+
+
+@group_sets_app.command("delete")
+def group_set_delete(name: str) -> None:
+    """Delete a Group Set and its memberships, but not destinations."""
+
+    async def operation(repository: Repository, _: Settings) -> str:
+        resolver = TargetResolver(repository)
+        service = GroupSetService(repository, resolver)
+        normalized = service.normalize_name(name)
+        await service.delete(normalized, actor="cli")
+        return normalized
+
+    deleted_name = _run(_with_repository(operation))
+    typer.echo(f"Group set deleted: {deleted_name}")
+
+
 @app.command("send")
 def send_command(
     group: Annotated[str, typer.Option("--group", help="Whitelisted ID or alias")],
@@ -383,6 +531,154 @@ def send_command(
         )
     else:
         typer.echo(f"Queued job {result.job.uuid} ({result.job.status})")
+
+
+@app.command("sendall")
+def send_all_command(
+    text: Annotated[str, typer.Option("--text", "-t", help="Message text")],
+) -> None:
+    """Queue one independent job for every currently allowed Telegram group."""
+
+    async def operation(
+        repository: Repository, settings: Settings
+    ) -> tuple[BulkEnqueueResult | None, bool]:
+        resolver = TargetResolver(repository)
+        resolution = await resolver.allowed_groups()
+        if not resolution.destinations:
+            return None, settings.dry_run
+        result = await BulkMessageService(
+            repository, MessageService(repository, settings)
+        ).enqueue_bulk(
+            resolution.destinations,
+            text=text,
+            batch_type="sendall",
+            requested=(
+                len(resolution.destinations) + resolution.duplicates + len(resolution.errors)
+            ),
+            duplicates=resolution.duplicates,
+            skipped=len(resolution.errors),
+            actor="cli",
+        )
+        return result, settings.dry_run
+
+    result, dry_run = _run(_with_repository(operation))
+    if result is None:
+        typer.echo("No allowed groups found. Nothing was queued.")
+        return
+    typer.echo(_bulk_output("Send-all queued", result, dry_run=dry_run))
+
+
+@app.command("sendmulti")
+def send_multi_command(
+    groups: Annotated[
+        list[str],
+        typer.Option(
+            "--group",
+            "-g",
+            help="Allowed alias or peer ID; repeat the option or separate values with commas.",
+        ),
+    ],
+    text: Annotated[str, typer.Option("--text", "-t", help="Message text")],
+) -> None:
+    """Atomically validate selected groups, then queue one job per canonical peer."""
+    targets = _split_cli_targets(groups)
+
+    async def operation(
+        repository: Repository, settings: Settings
+    ) -> tuple[BulkEnqueueResult, bool]:
+        resolver = TargetResolver(repository)
+        resolution = await resolver.resolve_targets(targets)
+        if resolution.errors:
+            details = "; ".join(f"{item.reference} - {item.reason}" for item in resolution.errors)
+            raise ValueError(
+                f"Multi-send aborted. Invalid targets: {details}. No messages were queued."
+            )
+        result = await BulkMessageService(
+            repository, MessageService(repository, settings)
+        ).enqueue_bulk(
+            resolution.destinations,
+            text=text,
+            batch_type="sendmulti",
+            requested=len(targets),
+            duplicates=resolution.duplicates,
+            actor="cli",
+        )
+        return result, settings.dry_run
+
+    result, dry_run = _run(_with_repository(operation))
+    typer.echo(_bulk_output("Multi-send queued", result, dry_run=dry_run))
+
+
+@app.command("sendset")
+def send_set_command(
+    name: str,
+    text: Annotated[str, typer.Option("--text", "-t", help="Message text")],
+) -> None:
+    """Queue one job for every currently eligible member of a Group Set."""
+
+    async def operation(
+        repository: Repository, settings: Settings
+    ) -> tuple[object, BulkEnqueueResult | None, bool]:
+        resolver = TargetResolver(repository)
+        group_sets = GroupSetService(repository, resolver)
+        snapshot = await group_sets.snapshot(name)
+        if not snapshot.eligible:
+            return snapshot, None, settings.dry_run
+        result = await BulkMessageService(
+            repository, MessageService(repository, settings)
+        ).enqueue_bulk(
+            snapshot.eligible,
+            text=text,
+            batch_type="sendset",
+            requested=len(snapshot.members),
+            duplicates=snapshot.duplicates,
+            skipped=snapshot.disabled + snapshot.missing,
+            actor="cli",
+        )
+        return snapshot, result, settings.dry_run
+
+    snapshot, result, dry_run = _run(_with_repository(operation))
+    if result is None:
+        typer.echo(f"No eligible groups in set: {snapshot.group_set.name}. Nothing was queued.")
+        return
+    typer.echo(
+        _bulk_output(f"Group set queued: {snapshot.group_set.name}", result, dry_run=dry_run)
+    )
+    typer.echo(f"Disabled: {snapshot.disabled}\nMissing: {snapshot.missing}")
+
+
+@app.command("batch")
+def batch_status_command(batch_id: str) -> None:
+    """Show aggregate queue status for a bulk-send batch UUID."""
+
+    async def operation(
+        repository: Repository, settings: Settings
+    ) -> tuple[object, dict[str, int]]:
+        return await BulkMessageService(
+            repository, MessageService(repository, settings)
+        ).batch_status(batch_id)
+
+    batch, counts = _run(_with_repository(operation))
+    pending_statuses = {
+        JobStatus.PENDING,
+        JobStatus.SCHEDULED,
+        JobStatus.PROCESSING,
+        JobStatus.RETRY,
+        JobStatus.WAITING_RATE_LIMIT,
+        JobStatus.REVIEW_REQUIRED,
+    }
+    pending = sum(counts.get(status.value, 0) for status in pending_statuses)
+    typer.echo(
+        f"Batch: {batch.id}\n"
+        f"Type: {batch.batch_type}\n"
+        f"Targets: {batch.requested_count}\n"
+        f"Jobs: {sum(counts.values())}\n"
+        f"Pending: {pending}\n"
+        f"Sent: {counts.get(JobStatus.SENT.value, 0)}\n"
+        f"Failed: {counts.get(JobStatus.FAILED.value, 0)}\n"
+        f"Cancelled: {counts.get(JobStatus.CANCELLED.value, 0)}\n"
+        f"Dry run: {counts.get(JobStatus.DRY_RUN.value, 0)}"
+    )
 
 
 @queue_app.command("list")
