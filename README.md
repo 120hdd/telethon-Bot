@@ -85,11 +85,11 @@ Set the `TELEGRAM_*` values, then perform Telegram login in an interactive termi
 least one destination:
 
 ```bash
-sudo -u sajadbot /usr/local/bin/sajadbot auth login
-sudo -u sajadbot /usr/local/bin/sajadbot auth status
-sudo -u sajadbot /usr/local/bin/sajadbot groups refresh
-sudo -u sajadbot /usr/local/bin/sajadbot groups list
-sudo -u sajadbot /usr/local/bin/sajadbot groups allow -1001234567890
+sudo tgs auth login
+sudo tgs auth status
+sudo tgs groups refresh
+sudo tgs groups list
+sudo tgs groups allow -1001234567890
 ```
 
 Start the service after authentication succeeds:
@@ -148,6 +148,14 @@ sudo tgs auth login --stop-service
 sudo tgs auth login --qr --stop-service
 sudo tgs auth status --stop-service
 
+# Refresh Telegram groups safely, inspect the cache, and manage the whitelist
+sudo tgs groups refresh --stop-service
+sudo tgs groups list
+sudo tgs groups allowed
+sudo tgs groups allow -1001234567890
+sudo tgs groups alias -1001234567890 work
+sudo tgs groups deny work
+
 # Queue bulk work through the installed application CLI
 sudo tgs sendmulti -g sales -g customers --text "Hello"
 sudo tgs sendall --text "Hello everyone"
@@ -161,9 +169,10 @@ sudo tgs batch BATCH_UUID
 tgs version
 ```
 
-The `tgs` bulk and Group Set commands run the installed application CLI as the unprivileged
-`sajadbot` user. They only enqueue or inspect SQLite state and do not require stopping the active
-service or opening the Telethon session.
+The `tgs` group management, bulk, and Group Set commands run the installed application CLI as the
+unprivileged `sajadbot` user. Group list/allow/deny/alias, bulk, and Group Set operations only use
+SQLite and can run while the service is active. `tgs groups refresh` opens the Telethon session, so
+pass `--stop-service` when the service is active; `tgs` restarts it afterward.
 
 `tgs update` installs from the checkout you provide; it never performs an implicit `git pull` and
 does not replace `/etc/sajadbot/sajadbot.env`, sessions, the application database, uploads, or logs.

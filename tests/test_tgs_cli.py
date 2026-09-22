@@ -43,6 +43,13 @@ def load_tgs() -> ModuleType:
         ["sendmulti", "-h"],
         ["sendset", "-h"],
         ["batch", "-h"],
+        ["groups", "-h"],
+        ["groups", "list", "-h"],
+        ["groups", "refresh", "-h"],
+        ["groups", "allowed", "-h"],
+        ["groups", "allow", "-h"],
+        ["groups", "deny", "-h"],
+        ["groups", "alias", "-h"],
         ["groupset", "-h"],
         ["groupset", "create", "-h"],
         ["groupset", "add", "-h"],
@@ -178,3 +185,51 @@ def test_group_set_commands_delegate_to_installed_application_cli(monkeypatch) -
         ("groupset", "show", "ads"),
         ("groupset", "delete", "ads"),
     ]
+
+
+def test_group_commands_delegate_to_installed_application_cli(monkeypatch) -> None:
+    tgs = load_tgs()
+    delegated: list[tuple[str, ...]] = []
+    monkeypatch.setattr(
+        tgs,
+        "run_as_app_user",
+        lambda arguments: delegated.append(tuple(arguments)) or 0,
+    )
+
+    assert tgs.main(["groups", "list"]) == 0
+    assert tgs.main(["groups", "allowed"]) == 0
+    assert tgs.main(["groups", "allow", "sales"]) == 0
+    assert tgs.main(["groups", "deny", "-1003"]) == 0
+    assert tgs.main(["groups", "alias", "-1003", "customers"]) == 0
+
+    assert delegated == [
+        ("groups", "list"),
+        ("groups", "allowed"),
+        ("groups", "allow", "sales"),
+        ("groups", "deny", "-1003"),
+        ("groups", "alias", "-1003", "customers"),
+    ]
+
+
+@pytest.mark.parametrize("arguments, stop_service", [([], False), (["--stop-service"], True)])
+def test_groups_refresh_uses_session_access(
+    arguments: list[str], stop_service: bool, monkeypatch
+) -> None:
+    tgs = load_tgs()
+    delegated: list[tuple[str, ...]] = []
+    stop_service_values: list[bool] = []
+    monkeypatch.setattr(
+        tgs,
+        "run_as_app_user",
+        lambda command: delegated.append(tuple(command)) or 0,
+    )
+
+    def fake_with_session_access(stop: bool, operation) -> int:
+        stop_service_values.append(stop)
+        return operation()
+
+    monkeypatch.setattr(tgs, "with_session_access", fake_with_session_access)
+
+    assert tgs.main(["groups", "refresh", *arguments]) == 0
+    assert stop_service_values == [stop_service]
+    assert delegated == [("groups", "refresh")]

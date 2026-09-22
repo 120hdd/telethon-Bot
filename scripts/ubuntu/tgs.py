@@ -331,6 +331,20 @@ def command_batch(args: argparse.Namespace) -> int:
     return run_as_app_user(("batch", args.batch_id))
 
 
+def command_groups(args: argparse.Namespace) -> int:
+    delegated = ["groups", args.group_action]
+    if args.group_action in {"allow", "deny"}:
+        delegated.append(args.group)
+    elif args.group_action == "alias":
+        delegated.extend((args.group, args.alias))
+    if args.group_action == "refresh":
+        return with_session_access(
+            args.stop_service,
+            lambda: run_as_app_user(tuple(delegated)),
+        )
+    return run_as_app_user(tuple(delegated))
+
+
 def command_group_set(args: argparse.Namespace) -> int:
     delegated = ["groupset", args.group_set_action]
     if args.group_set_action != "list":
@@ -461,6 +475,29 @@ def build_parser() -> argparse.ArgumentParser:
     batch = subcommands.add_parser("batch", help="show aggregate status for a bulk batch")
     batch.add_argument("batch_id", help="batch UUID")
     batch.set_defaults(handler=command_batch)
+
+    groups = subcommands.add_parser("groups", help="discover and manage allowed Telegram groups")
+    group_commands = groups.add_subparsers(dest="group_action", required=True, metavar="ACTION")
+    groups_list = group_commands.add_parser("list", help="list cached groups")
+    groups_list.set_defaults(handler=command_groups)
+    groups_refresh = group_commands.add_parser(
+        "refresh", help="query Telegram and refresh the cached group list"
+    )
+    add_stop_service_option(groups_refresh)
+    groups_refresh.set_defaults(handler=command_groups)
+    groups_allowed = group_commands.add_parser("allowed", help="list whitelisted groups")
+    groups_allowed.set_defaults(handler=command_groups)
+    for action in ("allow", "deny"):
+        action_parser = group_commands.add_parser(
+            action,
+            help=f"{action} a cached group",
+        )
+        action_parser.add_argument("group", help="cached group ID or alias")
+        action_parser.set_defaults(handler=command_groups)
+    groups_alias = group_commands.add_parser("alias", help="assign a local alias to a group")
+    groups_alias.add_argument("group", help="cached group ID or current alias")
+    groups_alias.add_argument("alias", help="new local alias")
+    groups_alias.set_defaults(handler=command_groups)
 
     group_set = subcommands.add_parser("groupset", help="manage persistent Group Sets")
     group_set_commands = group_set.add_subparsers(
