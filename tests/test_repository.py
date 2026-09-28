@@ -7,7 +7,7 @@ import pytest
 from app.db.database import Database
 from app.db.repositories import Repository
 from app.messaging.service import MessageService
-from app.models import JobStatus
+from app.models import JobStatus, NewDestination
 from app.utils.time import to_db_time, utc_now
 from tests.conftest import add_destination
 
@@ -24,6 +24,23 @@ async def test_deny_cancels_unsent_jobs(repository: Repository, settings) -> Non
     assert job is not None
     assert job.status == JobStatus.CANCELLED
     assert job.last_error_type == "CANCELLED_DESTINATION_DISABLED"
+
+
+@pytest.mark.asyncio
+async def test_refresh_cancels_jobs_when_group_becomes_unsendable(
+    repository: Repository, settings
+) -> None:
+    chat_id = await add_destination(repository)
+    result = await MessageService(repository, settings).queue_message(chat_id, text="queued")
+
+    await repository.upsert_destinations(
+        [NewDestination(chat_id, "Work Group", "workgroup", "supergroup", False)]
+    )
+
+    job = await repository.get_job(result.job.uuid)
+    assert job is not None
+    assert job.status == JobStatus.CANCELLED
+    assert job.last_error_type == "CANCELLED_DESTINATION_UNAVAILABLE"
 
 
 @pytest.mark.asyncio

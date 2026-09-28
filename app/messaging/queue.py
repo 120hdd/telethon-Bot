@@ -75,16 +75,16 @@ class QueueWorker:
             )
             return True
         destination = await self.repository.resolve_destination(job.destination_chat_id)
-        if destination is None or not destination.enabled:
+        if destination is None or not destination.enabled or not destination.can_send:
             await self.repository.transition_job(
                 job.id,
                 JobStatus.FAILED,
                 error_type="DESTINATION_DISABLED",
-                error_message="Destination was disabled before delivery",
+                error_message="Destination was disabled or became unsendable before delivery",
             )
             await self._notify_saved_messages(
                 job,
-                f"failed\njob: {job.uuid}\nreason: destination was disabled before delivery",
+                f"failed\njob: {job.uuid}\nreason: destination was disabled or became unsendable",
             )
             return True
         if job.media_path is not None and not job.media_path.is_file():

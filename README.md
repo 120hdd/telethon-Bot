@@ -230,8 +230,9 @@ The terminal commands use the same resolver, persistent Group Sets, batch record
 path as their Saved Messages equivalents.
 
 Naive schedule values use `LOCAL_TIMEZONE`; offset-aware ISO values are also accepted. Times are
-stored as UTC. Repeating an equivalent command is suppressed. Use `--force` only when an intentional
-duplicate is required.
+stored as UTC. Repeating an equivalent command is suppressed; parse mode and link-preview
+suppression are part of that identity, so the same text with different formatting is a distinct
+send. Use `--force` only when an intentional duplicate is required.
 
 Queued media is copied beneath `data/uploads/<job-uuid>/`, so a scheduled send does not depend on
 the original file remaining in place.

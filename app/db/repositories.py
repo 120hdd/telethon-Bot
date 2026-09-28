@@ -222,6 +222,21 @@ class Repository:
                 """,
                 values,
             )
+            await connection.execute(
+                """
+                UPDATE message_jobs
+                SET status = 'CANCELLED', updated_at = ?,
+                    last_error_type = 'CANCELLED_DESTINATION_UNAVAILABLE',
+                    last_error_message = 'Destination no longer allows sending'
+                WHERE status IN ('PENDING', 'SCHEDULED', 'RETRY', 'WAITING_RATE_LIMIT')
+                  AND EXISTS (
+                    SELECT 1 FROM destinations d
+                    WHERE d.telegram_chat_id = message_jobs.destination_chat_id
+                      AND d.can_send = 0
+                  )
+                """,
+                (now,),
+            )
         return len(values)
 
     async def list_destinations(self, *, allowed_only: bool = False) -> list[Destination]:
@@ -490,6 +505,18 @@ class Repository:
         now = to_db_time(utc_now())
         try:
             async with self.db.transaction(immediate=True) as connection:
+                if job.status == JobStatus.DRY_RUN:
+                    existing_cursor = await connection.execute(
+                        """
+                        SELECT * FROM message_jobs
+                        WHERE idempotency_key = ? AND status = 'DRY_RUN'
+                        ORDER BY id DESC LIMIT 1
+                        """,
+                        (job.idempotency_key,),
+                    )
+                    existing_row = await existing_cursor.fetchone()
+                    if existing_row is not None:
+                        raise DuplicateJobError(self._job(existing_row))
                 cursor = await connection.execute(
                     """
                     INSERT INTO message_jobs(
@@ -553,6 +580,22 @@ class Repository:
         )
         return self._job(row) if row else None
 
+    async def rekey_legacy_job(self, job_id: int, *, old_key: str, new_key: str) -> bool:
+        """Upgrade one pre-formatting key without disturbing unrelated or forced jobs."""
+        async with self.db.transaction(immediate=True) as connection:
+            cursor = await connection.execute(
+                """
+                UPDATE message_jobs SET idempotency_key = ?
+                WHERE id = ? AND idempotency_key = ?
+                  AND status IN (
+                    'PENDING', 'SCHEDULED', 'PROCESSING',
+                    'WAITING_RATE_LIMIT', 'RETRY', 'SENT'
+                  )
+                """,
+                (new_key, job_id, old_key),
+            )
+            return cursor.rowcount == 1
+
     async def promote_due_scheduled(self, now: str) -> int:
         async with self.db.transaction(immediate=True) as connection:
             cursor = await connection.execute(
@@ -572,12 +615,12 @@ class Repository:
                 UPDATE message_jobs
                 SET status = 'CANCELLED', updated_at = ?,
                     last_error_type = 'CANCELLED_DESTINATION_DISABLED',
-                    last_error_message = 'Destination is not whitelisted'
+                    last_error_message = 'Destination is disabled or no longer allows sending'
                 WHERE status IN ('PENDING', 'SCHEDULED', 'RETRY', 'WAITING_RATE_LIMIT')
                   AND EXISTS (
                     SELECT 1 FROM destinations d
                     WHERE d.telegram_chat_id = message_jobs.destination_chat_id
-                      AND d.enabled = 0
+                       AND (d.enabled = 0 OR d.can_send = 0)
                   )
                 """,
                 (now,),

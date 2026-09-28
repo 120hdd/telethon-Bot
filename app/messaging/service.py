@@ -10,7 +10,13 @@ from pathlib import Path
 
 from app.config import Settings
 from app.db.repositories import DuplicateJobError, NotFoundError, Repository
-from app.messaging.idempotency import build_idempotency_key, hash_file, normalize_message
+from app.messaging.idempotency import (
+    PARSE_MODES,
+    build_idempotency_key,
+    format_identity,
+    hash_file,
+    normalize_message,
+)
 from app.models import JobStatus, MessageJob, NewJob
 from app.utils.time import to_db_time, utc_now
 
@@ -69,7 +75,7 @@ class MessageService:
         if len(normalized_text) > text_limit:
             kind = "Media caption" if source_media else "Message"
             raise ValueError(f"{kind} exceeds the {text_limit}-character limit.")
-        if parse_mode not in {None, "md", "markdown", "html"}:
+        if parse_mode is not None and parse_mode not in PARSE_MODES:
             raise ValueError("Parse mode must be md, markdown, html, or omitted.")
 
         if scheduled_at is not None and scheduled_at.tzinfo is None:
@@ -77,8 +83,38 @@ class MessageService:
         now = utc_now()
         due = scheduled_at.astimezone(now.tzinfo) if scheduled_at else now
         schedule_identity = to_db_time(scheduled_at) if scheduled_at else "IMMEDIATE"
-        key = build_idempotency_key(
+        format_component = format_identity(
+            parse_mode, disable_link_preview, has_media=source_media is not None
+        )
+        legacy_key = build_idempotency_key(
             destination.telegram_chat_id, normalized_text, media_hash, schedule_identity
+        )
+        if not force:
+            legacy_job = await self.repository.find_duplicate(legacy_key)
+            if legacy_job is not None:
+                legacy_format = format_identity(
+                    legacy_job.parse_mode,
+                    legacy_job.disable_link_preview,
+                    has_media=legacy_job.media_path is not None,
+                )
+                if legacy_format:
+                    await self.repository.rekey_legacy_job(
+                        legacy_job.id,
+                        old_key=legacy_key,
+                        new_key=build_idempotency_key(
+                            destination.telegram_chat_id,
+                            normalized_text,
+                            media_hash,
+                            schedule_identity,
+                            legacy_format,
+                        ),
+                    )
+        key = build_idempotency_key(
+            destination.telegram_chat_id,
+            normalized_text,
+            media_hash,
+            schedule_identity,
+            format_component,
         )
         job_uuid = str(uuid.uuid4())
         if force:
@@ -87,6 +123,7 @@ class MessageService:
                 normalized_text,
                 media_hash,
                 f"{schedule_identity}:{job_uuid}",
+                format_component,
             )
 
         staged_media: Path | None = None
