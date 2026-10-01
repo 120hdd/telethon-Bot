@@ -163,6 +163,10 @@ sudo tgs groupset create customers
 sudo tgs groupset add customers -g shop1 -g shop2
 sudo tgs groupset show customers
 sudo tgs sendset customers --text "Hello customers"
+sudo tgs forward -g family --source-id 123
+sudo tgs forwardmulti -g family,work --source-id 123
+sudo tgs forwardset customers --source-id 123
+sudo tgs forwardall --source-id 123
 sudo tgs batch BATCH_UUID
 
 # Installed versions
@@ -222,12 +226,21 @@ python run.py groupset create customers
 python run.py groupset add customers -g shop1 -g shop2
 python run.py groupset show customers
 python run.py sendset customers --text "Hello customers"
+python run.py forward -g family --source-id 123
+python run.py forwardmulti -g family,work --source-id 123
+python run.py forwardset customers --source-id 123
+python run.py forwardall --source-id 123
 python run.py batch BATCH_UUID
 ```
 
 For `sendmulti` and `groupset add/remove`, repeat `-g` or pass comma-separated aliases/peer IDs.
 The terminal commands use the same resolver, persistent Group Sets, batch records, and normal queue
 path as their Saved Messages equivalents.
+
+For terminal forwarding, `--source-id` is the message ID of a forwarded item in the authenticated
+account's Saved Messages. The service must have cached the account ID. The worker checks that the
+source remains forwarded, accessible, and supported before native delivery. Add `--at` to schedule
+any forwarding command; deleting the source before delivery causes a clear job failure.
 
 Naive schedule values use `LOCAL_TIMEZONE`; offset-aware ISO values are also accepted. Times are
 stored as UTC. Repeating an equivalent command is suppressed; parse mode and link-preview

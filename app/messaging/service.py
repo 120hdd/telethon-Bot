@@ -40,6 +40,7 @@ class MessageService:
         *,
         source_chat_id: int,
         source_message_id: int,
+        scheduled_at: datetime | None = None,
         actor: str = "saved_messages",
         batch_id: str | None = None,
     ) -> QueueResult:
@@ -54,11 +55,17 @@ class MessageService:
             )
         if source_chat_id <= 0 or source_message_id <= 0:
             raise ValueError("Forward source is invalid.")
+        if scheduled_at is not None and scheduled_at.tzinfo is None:
+            raise ValueError("Scheduled datetime must include timezone information.")
+        now = utc_now()
+        if scheduled_at is not None and scheduled_at <= now:
+            raise ValueError("Scheduled delivery must be in the future.")
+        schedule_identity = to_db_time(scheduled_at) if scheduled_at else "IMMEDIATE"
         key = build_idempotency_key(
             destination.telegram_chat_id,
             "",
             "",
-            "IMMEDIATE",
+            schedule_identity,
             f"forward={source_chat_id}:{source_message_id}",
         )
         job = NewJob(
@@ -68,8 +75,14 @@ class MessageService:
             media_path=None,
             parse_mode=None,
             disable_link_preview=False,
-            scheduled_at=to_db_time(utc_now()),
-            status=JobStatus.DRY_RUN if self.settings.dry_run else JobStatus.PENDING,
+            scheduled_at=to_db_time(scheduled_at or now),
+            status=(
+                JobStatus.DRY_RUN
+                if self.settings.dry_run
+                else JobStatus.SCHEDULED
+                if scheduled_at
+                else JobStatus.PENDING
+            ),
             max_attempts=self.settings.max_queue_attempts,
             idempotency_key=key,
             requested_by=actor,

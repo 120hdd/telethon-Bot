@@ -20,7 +20,7 @@ from app.models import JobStatus
 from app.services.health import format_health, get_health
 from app.telegram.dialogs import allow_group, refresh_dialogs
 from app.telegram.errors import ClassifiedTelegramError
-from app.telegram.sender import TelegramSender
+from app.telegram.sender import TelegramSender, validate_forward_source
 
 logger = logging.getLogger(__name__)
 
@@ -363,41 +363,7 @@ class SavedMessagesController:
                     if not reply_id:
                         raise ValueError("Reply to a forwarded message in Saved Messages.")
                     source = await self.client.get_messages("me", ids=reply_id)
-                    if source is None:
-                        raise ValueError("Forward source is missing or was deleted.")
-                    if getattr(source, "fwd_from", None) is None:
-                        raise ValueError("Reply to a forwarded message in Saved Messages.")
-                    if getattr(source, "noforwards", False):
-                        raise ValueError("This message is protected and cannot be forwarded.")
-                    media = getattr(source, "media", None)
-                    document = getattr(media, "document", None)
-                    mime = getattr(document, "mime_type", "") or ""
-                    special_attributes = {
-                        "DocumentAttributeSticker",
-                        "DocumentAttributeAnimated",
-                        "DocumentAttributeAudio",
-                    }
-                    has_special_attribute = any(
-                        type(attribute).__name__ in special_attributes
-                        or bool(getattr(attribute, "round_message", False))
-                        for attribute in (getattr(document, "attributes", None) or ())
-                    )
-                    supported = (
-                        (
-                            getattr(source, "message", None)
-                            and (media is None or type(media).__name__ == "MessageMediaWebPage")
-                        )
-                        or getattr(media, "photo", None)
-                        or (
-                            document is not None
-                            and not mime.startswith("audio/")
-                            and not has_special_attribute
-                        )
-                    )
-                    if not supported:
-                        raise ValueError(
-                            "Only text, photos, videos, and documents can be forwarded."
-                        )
+                    validate_forward_source(source)
                     response = await self.execute(
                         command, source_chat_id=self.account_id, source_message_id=reply_id
                     )

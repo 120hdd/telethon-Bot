@@ -63,7 +63,9 @@ async def test_forward_jobs_preserve_source_and_use_native_api(repository, setti
     assert duplicate.duplicate
     assert first.job.source_chat_id == 1
     assert first.job.source_message_id == 77
-    client = ForwardClient(SimpleNamespace(id=77, noforwards=False))
+    client = ForwardClient(
+        SimpleNamespace(id=77, noforwards=False, fwd_from=object(), message="hello", media=None)
+    )
     assert await TelegramSender(client).send(first.job) == 987
     assert client.forwards == [(-1001, 77, 1)]
 
@@ -79,7 +81,10 @@ async def test_missing_or_protected_source_fails_before_send(repository, setting
             -1001, source_chat_id=1, source_message_id=77
         )
     ).job
-    for source in (None, SimpleNamespace(id=77, noforwards=True)):
+    for source in (
+        None,
+        SimpleNamespace(id=77, noforwards=True, fwd_from=object(), message="hello", media=None),
+    ):
         client = ForwardClient(source)
         with pytest.raises(Exception, match="source|protected"):
             await TelegramSender(client).send(job)

@@ -105,6 +105,70 @@ def _bulk_output(heading: str, result: BulkEnqueueResult, *, dry_run: bool) -> s
     )
 
 
+async def _forward_account_id(repository: Repository) -> int:
+    account = await repository.get_account()
+    if account is None:
+        raise ValueError(
+            "Telegram account is not cached. Start and authenticate the service first."
+        )
+    return account.telegram_user_id
+
+
+async def _queue_bulk_forward(
+    repository: Repository,
+    settings: Settings,
+    *,
+    kind: str,
+    source_id: int,
+    targets: tuple[str, ...] = (),
+    set_name: str | None = None,
+    at: str | None = None,
+) -> BulkEnqueueResult | None:
+    if source_id <= 0:
+        raise ValueError("Source message ID must be positive.")
+    source_chat_id = await _forward_account_id(repository)
+    resolver = TargetResolver(repository)
+    if kind == "forwardall":
+        resolution = await resolver.allowed_groups()
+        destinations = resolution.destinations
+        requested = len(destinations) + resolution.duplicates + len(resolution.errors)
+        duplicates = resolution.duplicates
+        skipped = len(resolution.errors)
+    elif kind == "forwardmulti":
+        resolution = await resolver.resolve_targets(targets)
+        if resolution.errors:
+            details = "; ".join(f"{item.reference} - {item.reason}" for item in resolution.errors)
+            raise ValueError(
+                f"Multi-forward aborted. Invalid targets: {details}. Nothing was queued."
+            )
+        destinations = resolution.destinations
+        requested = len(targets)
+        duplicates = resolution.duplicates
+        skipped = 0
+    else:
+        assert set_name is not None
+        snapshot = await GroupSetService(repository, resolver).snapshot(set_name)
+        destinations = snapshot.eligible
+        requested = len(snapshot.members)
+        duplicates = snapshot.duplicates
+        skipped = snapshot.disabled + snapshot.missing
+    if not destinations:
+        return None
+    scheduled_at = parse_schedule(at, settings.timezone) if at else None
+    return await BulkMessageService(repository, MessageService(repository, settings)).enqueue_bulk(
+        destinations,
+        text="",
+        batch_type=kind,
+        requested=requested,
+        duplicates=duplicates,
+        skipped=skipped,
+        actor="cli",
+        source_chat_id=source_chat_id,
+        source_message_id=source_id,
+        scheduled_at=scheduled_at,
+    )
+
+
 async def _with_repository[T](
     operation: Callable[[Repository, Settings], Awaitable[T]],
 ) -> T:
@@ -645,6 +709,124 @@ def send_set_command(
         _bulk_output(f"Group set queued: {snapshot.group_set.name}", result, dry_run=dry_run)
     )
     typer.echo(f"Disabled: {snapshot.disabled}\nMissing: {snapshot.missing}")
+
+
+@app.command("forward")
+def forward_command(
+    group: Annotated[str, typer.Option("--group", "-g", help="Whitelisted ID or alias")],
+    source_id: Annotated[int, typer.Option("--source-id", help="Saved Messages message ID")],
+    at: Annotated[
+        str | None, typer.Option("--at", help="Local or offset-aware ISO datetime")
+    ] = None,
+) -> None:
+    """Queue native forwarding of one Saved Messages message to one allowed group."""
+
+    async def operation(repository: Repository, settings: Settings) -> tuple[object, bool]:
+        if source_id <= 0:
+            raise ValueError("Source message ID must be positive.")
+        result = await MessageService(repository, settings).queue_forward(
+            group,
+            source_chat_id=await _forward_account_id(repository),
+            source_message_id=source_id,
+            scheduled_at=parse_schedule(at, settings.timezone) if at else None,
+            actor="cli",
+        )
+        return result, settings.dry_run
+
+    result, dry_run = _run(_with_repository(operation))
+    typer.echo(
+        f"{'[DRY-RUN] ' if dry_run else ''}Forward queued\n"
+        f"Queued: {0 if result.duplicate else 1}\n"
+        f"Duplicates: {int(result.duplicate)}\nSkipped: {int(result.duplicate)}\n"
+        f"Failed: 0\nJob: {result.job.uuid}"
+    )
+
+
+@app.command("forwardall")
+def forward_all_command(
+    source_id: Annotated[int, typer.Option("--source-id", help="Saved Messages message ID")],
+    at: Annotated[
+        str | None, typer.Option("--at", help="Local or offset-aware ISO datetime")
+    ] = None,
+) -> None:
+    """Queue native forwarding to every currently allowed group."""
+
+    async def operation(
+        repository: Repository, settings: Settings
+    ) -> tuple[BulkEnqueueResult | None, bool]:
+        return await _queue_bulk_forward(
+            repository, settings, kind="forwardall", source_id=source_id, at=at
+        ), settings.dry_run
+
+    result, dry_run = _run(_with_repository(operation))
+    typer.echo(
+        _bulk_output("Forward-all queued", result, dry_run=dry_run)
+        if result
+        else "No eligible groups. Queued: 0; Skipped: 0; Failed: 0"
+    )
+
+
+@app.command("forwardmulti")
+def forward_multi_command(
+    groups: Annotated[
+        list[str], typer.Option("--group", "-g", help="Repeat or separate aliases with commas")
+    ],
+    source_id: Annotated[int, typer.Option("--source-id", help="Saved Messages message ID")],
+    at: Annotated[
+        str | None, typer.Option("--at", help="Local or offset-aware ISO datetime")
+    ] = None,
+) -> None:
+    """Validate selected groups and queue native forwarding to each."""
+    targets = _split_cli_targets(groups)
+
+    async def operation(
+        repository: Repository, settings: Settings
+    ) -> tuple[BulkEnqueueResult | None, bool]:
+        return await _queue_bulk_forward(
+            repository,
+            settings,
+            kind="forwardmulti",
+            source_id=source_id,
+            targets=targets,
+            at=at,
+        ), settings.dry_run
+
+    result, dry_run = _run(_with_repository(operation))
+    typer.echo(
+        _bulk_output("Multi-forward queued", result, dry_run=dry_run)
+        if result
+        else "No eligible groups. Queued: 0; Skipped: 0; Failed: 0"
+    )
+
+
+@app.command("forwardset")
+def forward_set_command(
+    name: str,
+    source_id: Annotated[int, typer.Option("--source-id", help="Saved Messages message ID")],
+    at: Annotated[
+        str | None, typer.Option("--at", help="Local or offset-aware ISO datetime")
+    ] = None,
+) -> None:
+    """Queue native forwarding to eligible members of a Group Set."""
+
+    async def operation(
+        repository: Repository, settings: Settings
+    ) -> tuple[BulkEnqueueResult | None, bool]:
+        return await _queue_bulk_forward(
+            repository,
+            settings,
+            kind="forwardset",
+            source_id=source_id,
+            set_name=name,
+            at=at,
+        ), settings.dry_run
+
+    result, dry_run = _run(_with_repository(operation))
+    typer.echo(
+        _bulk_output("Group-set forward queued", result, dry_run=dry_run)
+        if result
+        else "No eligible groups. Queued: 0; Skipped: 0; Failed: 0"
+    )
 
 
 @app.command("batch")

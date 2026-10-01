@@ -161,6 +161,26 @@ def test_bulk_commands_delegate_to_installed_application_cli(monkeypatch) -> Non
     ]
 
 
+def test_forward_commands_delegate_to_installed_application_cli(monkeypatch) -> None:
+    tgs = load_tgs()
+    delegated: list[tuple[str, ...]] = []
+    monkeypatch.setattr(
+        tgs, "run_as_app_user", lambda arguments: delegated.append(tuple(arguments)) or 0
+    )
+
+    assert tgs.main(["forward", "-g", "family", "--source-id", "77"]) == 0
+    assert tgs.main(["forwardmulti", "-g", "family,work", "--source-id", "77"]) == 0
+    assert tgs.main(["forwardset", "customers", "--source-id", "77"]) == 0
+    assert tgs.main(["forwardall", "--source-id", "77", "--at", "2030-01-01T10:00:00Z"]) == 0
+
+    assert delegated == [
+        ("forward", "--group", "family", "--source-id", "77"),
+        ("forwardmulti", "--group", "family,work", "--source-id", "77"),
+        ("forwardset", "customers", "--source-id", "77"),
+        ("forwardall", "--source-id", "77", "--at", "2030-01-01T10:00:00Z"),
+    ]
+
+
 def test_group_set_commands_delegate_to_installed_application_cli(monkeypatch) -> None:
     tgs = load_tgs()
     delegated: list[tuple[str, ...]] = []

@@ -4,6 +4,7 @@ import logging
 import uuid
 from collections.abc import Iterable
 from dataclasses import dataclass
+from datetime import datetime
 
 from app.db.repositories import Repository
 from app.messaging.service import MessageService
@@ -43,6 +44,7 @@ class BulkMessageService:
         actor: str = "saved_messages_bulk",
         source_chat_id: int | None = None,
         source_message_id: int | None = None,
+        scheduled_at: datetime | None = None,
     ) -> BulkEnqueueResult:
         snapshot: list[Destination] = []
         seen: set[int] = set()
@@ -74,6 +76,7 @@ class BulkMessageService:
                         destination.telegram_chat_id,
                         source_chat_id=source_chat_id,
                         source_message_id=source_message_id,
+                        scheduled_at=scheduled_at,
                         actor=actor,
                         batch_id=batch_id,
                     )

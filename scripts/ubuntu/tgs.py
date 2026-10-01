@@ -327,6 +327,37 @@ def command_send_set(args: argparse.Namespace) -> int:
     return run_as_app_user(("sendset", args.name, "--text", args.text))
 
 
+def command_forward(args: argparse.Namespace) -> int:
+    delegated = ["forward", "--group", args.group, "--source-id", str(args.source_id)]
+    if args.at:
+        delegated.extend(("--at", args.at))
+    return run_as_app_user(tuple(delegated))
+
+
+def command_forward_all(args: argparse.Namespace) -> int:
+    delegated = ["forwardall", "--source-id", str(args.source_id)]
+    if args.at:
+        delegated.extend(("--at", args.at))
+    return run_as_app_user(tuple(delegated))
+
+
+def command_forward_multi(args: argparse.Namespace) -> int:
+    delegated = ["forwardmulti"]
+    for group in args.groups:
+        delegated.extend(("--group", group))
+    delegated.extend(("--source-id", str(args.source_id)))
+    if args.at:
+        delegated.extend(("--at", args.at))
+    return run_as_app_user(tuple(delegated))
+
+
+def command_forward_set(args: argparse.Namespace) -> int:
+    delegated = ["forwardset", args.name, "--source-id", str(args.source_id)]
+    if args.at:
+        delegated.extend(("--at", args.at))
+    return run_as_app_user(tuple(delegated))
+
+
 def command_batch(args: argparse.Namespace) -> int:
     return run_as_app_user(("batch", args.batch_id))
 
@@ -471,6 +502,40 @@ def build_parser() -> argparse.ArgumentParser:
     send_set.add_argument("name", help="Group Set name")
     send_set.add_argument("-t", "--text", required=True, help="message text")
     send_set.set_defaults(handler=command_send_set)
+
+    forward = subcommands.add_parser(
+        "forward", help="forward a Saved Messages message to one group"
+    )
+    forward.add_argument("-g", "--group", required=True, help="allowed alias or peer ID")
+    forward.add_argument("--source-id", type=int, required=True, help="Saved Messages message ID")
+    forward.add_argument("--at", help="local or offset-aware ISO datetime")
+    forward.set_defaults(handler=command_forward)
+
+    forward_all = subcommands.add_parser("forwardall", help="forward to every allowed group")
+    forward_all.add_argument("--source-id", type=int, required=True)
+    forward_all.add_argument("--at", help="local or offset-aware ISO datetime")
+    forward_all.set_defaults(handler=command_forward_all)
+
+    forward_multi = subcommands.add_parser(
+        "forwardmulti", help="forward to selected allowed groups"
+    )
+    forward_multi.add_argument(
+        "-g",
+        "--group",
+        dest="groups",
+        action="append",
+        required=True,
+        help="repeat or separate allowed aliases with commas",
+    )
+    forward_multi.add_argument("--source-id", type=int, required=True)
+    forward_multi.add_argument("--at", help="local or offset-aware ISO datetime")
+    forward_multi.set_defaults(handler=command_forward_multi)
+
+    forward_set = subcommands.add_parser("forwardset", help="forward to a Group Set")
+    forward_set.add_argument("name", help="Group Set name")
+    forward_set.add_argument("--source-id", type=int, required=True)
+    forward_set.add_argument("--at", help="local or offset-aware ISO datetime")
+    forward_set.set_defaults(handler=command_forward_set)
 
     batch = subcommands.add_parser("batch", help="show aggregate status for a bulk batch")
     batch.add_argument("batch_id", help="batch UUID")

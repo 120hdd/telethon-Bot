@@ -37,6 +37,54 @@ class MessageSender(Protocol):
     async def edit_control_message(self, message_id: int, text: str) -> int: ...
 
 
+def validate_forward_source(source: object | None) -> None:
+    if source is None:
+        raise ClassifiedTelegramError(
+            ErrorCategory.SOURCE_ERROR,
+            "ForwardSourceMissing",
+            "Forward source is missing or was deleted from Saved Messages.",
+        )
+    if getattr(source, "fwd_from", None) is None:
+        raise ClassifiedTelegramError(
+            ErrorCategory.SOURCE_ERROR,
+            "ForwardSourceNotForwarded",
+            "Source must be a forwarded message in Saved Messages.",
+        )
+    if getattr(source, "noforwards", False):
+        raise ClassifiedTelegramError(
+            ErrorCategory.SOURCE_ERROR,
+            "ForwardSourceProtected",
+            "Forward source is protected and cannot be forwarded.",
+        )
+    media = getattr(source, "media", None)
+    document = getattr(media, "document", None)
+    mime = getattr(document, "mime_type", "") or ""
+    special_attributes = {
+        "DocumentAttributeSticker",
+        "DocumentAttributeAnimated",
+        "DocumentAttributeAudio",
+    }
+    has_special_attribute = any(
+        type(attribute).__name__ in special_attributes
+        or bool(getattr(attribute, "round_message", False))
+        for attribute in (getattr(document, "attributes", None) or ())
+    )
+    supported = (
+        (
+            getattr(source, "message", None)
+            and (media is None or type(media).__name__ == "MessageMediaWebPage")
+        )
+        or getattr(media, "photo", None)
+        or (document is not None and not mime.startswith("audio/") and not has_special_attribute)
+    )
+    if not supported:
+        raise ClassifiedTelegramError(
+            ErrorCategory.SOURCE_ERROR,
+            "ForwardSourceUnsupported",
+            "Only forwarded text, photos, videos, and documents are supported.",
+        )
+
+
 class TelegramSender:
     """The only application component allowed to invoke Telegram send APIs."""
 
@@ -63,18 +111,7 @@ class TelegramSender:
                 source = await self._client.get_messages(
                     job.source_chat_id, ids=job.source_message_id
                 )
-                if source is None:
-                    raise ClassifiedTelegramError(
-                        ErrorCategory.SOURCE_ERROR,
-                        "ForwardSourceMissing",
-                        "Forward source is missing or was deleted from Saved Messages.",
-                    )
-                if getattr(source, "noforwards", False):
-                    raise ClassifiedTelegramError(
-                        ErrorCategory.SOURCE_ERROR,
-                        "ForwardSourceProtected",
-                        "Forward source is protected and cannot be forwarded.",
-                    )
+                validate_forward_source(source)
                 message = await self._client.forward_messages(
                     job.destination_chat_id, job.source_message_id, from_peer=job.source_chat_id
                 )
