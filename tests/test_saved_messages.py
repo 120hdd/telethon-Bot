@@ -111,8 +111,13 @@ def test_help_documents_every_saved_messages_command() -> None:
         "/groupset delete",
         "/sendset",
         "/batch",
+        "/forward",
+        "/forwardmulti",
+        "/forwardset",
+        "/forwardall",
     ):
         assert command in HELP_TEXT
+    assert "خودِ پیام فورواردشده چیزی ارسال نمی‌کند" in HELP_TEXT
 
 
 @pytest.mark.parametrize(

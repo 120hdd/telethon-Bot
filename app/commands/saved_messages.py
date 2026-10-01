@@ -279,27 +279,32 @@ alias اختیاری است و فقط حرف، عدد و _ می‌پذیرد.
 
 HELP_TEXT += """
 
-Bulk and Group Sets:
-/sendmulti GROUP1,GROUP2 MESSAGE - queue one job per selected allowed group
-/sendall MESSAGE - queue one job for every currently allowed group
-/groupset create NAME - create a persistent set
-/groupset add NAME GROUP... - add cached groups (spaces or commas)
-/groupset remove NAME GROUP... - remove groups
-/groupset list - list saved sets
-/groupset show NAME - show members and current eligibility
-/groupset delete NAME - delete a set
-/sendset NAME MESSAGE - queue all currently eligible members
-/batch BATCH_ID - show delivery status for a bulk batch
+ارسال گروهی و مجموعهٔ گروه‌ها:
+/sendmulti GROUP1,GROUP2 MESSAGE — ارسال به چند گروه مجاز مشخص
+/sendall MESSAGE — ارسال به همهٔ گروه‌های مجاز فعلی
+/groupset create NAME — ساخت مجموعهٔ دائمی گروه‌ها
+/groupset add NAME GROUP... — افزودن گروه‌های شناخته‌شده با فاصله یا ویرگول
+/groupset remove NAME GROUP... — حذف گروه از مجموعه
+/groupset list — فهرست مجموعه‌ها
+/groupset show NAME — نمایش اعضا و وضعیت مجاز بودن آن‌ها
+/groupset delete NAME — حذف مجموعه
+/sendset NAME MESSAGE — ارسال به اعضای مجاز فعلی مجموعه
+/batch BATCH_ID — نمایش وضعیت ارسال‌های یک نوبت گروهی
 
-Reply to a forwarded message in Saved Messages:
-/forward GROUP - native forward to one allowed group
-/forwardmulti GROUP1,GROUP2 - native forward to selected groups
-/forwardset NAME - native forward to a saved set
-/forwardall - native forward to every allowed group
-Forwarded messages alone never authorize delivery. Keep the source in Saved Messages.
+فوروارد از Saved Messages:
+۱. یک پیام متنی، عکس، ویدئو یا سند را به Saved Messages خودتان فوروارد کنید.
+۲. روی همان پیام Reply بزنید و یکی از فرمان‌های زیر را در پاسخ بنویسید:
+/forward GROUP — فوروارد بومی به یک گروه مجاز؛ مثال: /forward family
+/forwardmulti GROUP1,GROUP2 — فوروارد به چند گروه مجاز؛ مثال: /forwardmulti family,work
+/forwardset NAME — فوروارد به اعضای مجاز یک مجموعه؛ مثال: /forwardset customers
+/forwardall — فوروارد به همهٔ گروه‌های مجاز
+خودِ پیام فورواردشده چیزی ارسال نمی‌کند؛ فقط پاسخِ تازهٔ شما مجوز قرار گرفتن در صف است.
+پیام منبع را تا پایان ارسال در Saved Messages نگه دارید. پیام حذف‌شده یا محافظت‌شده ارسال نمی‌شود.
+نتیجه تعداد صف‌شده، ردشده و ناموفق را نشان می‌دهد؛ وضعیت بعدی را با /batch ببینید.
+فوروارد به‌صورت بومی انجام می‌شود و به کپی پیام تغییر نمی‌کند.
 
-Dot-prefixed forms such as .sendall remain supported. Bulk delivery uses the normal
-durable queue, sequential worker, rate limiter, retries, and dry-run behavior.
+فرمان‌های قدیمی با نقطه، مانند .sendall، هم کار می‌کنند. ارسال گروهی از صف پایدار،
+ارسال نوبتی، محدودیت سرعت، تلاش مجدد و حالت آزمایشی استفاده می‌کند.
 """
 
 
