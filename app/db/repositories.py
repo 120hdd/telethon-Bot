@@ -69,7 +69,9 @@ CREATE TABLE IF NOT EXISTS message_jobs (
     last_error_message TEXT,
     idempotency_key TEXT NOT NULL,
     requested_by TEXT NOT NULL DEFAULT 'cli',
-    batch_id TEXT
+    batch_id TEXT,
+    source_chat_id INTEGER,
+    source_message_id INTEGER
 );
 
 CREATE INDEX IF NOT EXISTS ix_jobs_status ON message_jobs(status);
@@ -144,6 +146,14 @@ class Repository:
             column_names = {row["name"] for row in await columns.fetchall()}
             if "batch_id" not in column_names:
                 await connection.execute("ALTER TABLE message_jobs ADD COLUMN batch_id TEXT")
+            if "source_chat_id" not in column_names:
+                await connection.execute(
+                    "ALTER TABLE message_jobs ADD COLUMN source_chat_id INTEGER"
+                )
+            if "source_message_id" not in column_names:
+                await connection.execute(
+                    "ALTER TABLE message_jobs ADD COLUMN source_message_id INTEGER"
+                )
             await connection.execute(
                 "CREATE INDEX IF NOT EXISTS ix_jobs_batch ON message_jobs(batch_id)"
             )
@@ -153,6 +163,10 @@ class Repository:
             )
             await connection.execute(
                 "INSERT OR IGNORE INTO schema_migrations(version, applied_at) VALUES(2, ?)",
+                (to_db_time(utc_now()),),
+            )
+            await connection.execute(
+                "INSERT OR IGNORE INTO schema_migrations(version, applied_at) VALUES(3, ?)",
                 (to_db_time(utc_now()),),
             )
 
@@ -522,8 +536,9 @@ class Repository:
                     INSERT INTO message_jobs(
                         uuid, destination_chat_id, text, media_path, parse_mode,
                         disable_link_preview, scheduled_at, status, max_attempts,
-                        created_at, updated_at, idempotency_key, requested_by, batch_id
-                    ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        created_at, updated_at, idempotency_key, requested_by, batch_id,
+                        source_chat_id, source_message_id
+                    ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         job.uuid,
@@ -540,6 +555,8 @@ class Repository:
                         job.idempotency_key,
                         job.requested_by,
                         job.batch_id,
+                        job.source_chat_id,
+                        job.source_message_id,
                     ),
                 )
                 job_id = cursor.lastrowid
@@ -888,4 +905,6 @@ class Repository:
             idempotency_key=row["idempotency_key"],
             requested_by=row["requested_by"],
             batch_id=row["batch_id"],
+            source_chat_id=row["source_chat_id"],
+            source_message_id=row["source_message_id"],
         )

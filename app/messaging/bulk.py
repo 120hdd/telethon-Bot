@@ -41,6 +41,8 @@ class BulkMessageService:
         duplicates: int = 0,
         skipped: int = 0,
         actor: str = "saved_messages_bulk",
+        source_chat_id: int | None = None,
+        source_message_id: int | None = None,
     ) -> BulkEnqueueResult:
         snapshot: list[Destination] = []
         seen: set[int] = set()
@@ -67,12 +69,21 @@ class BulkMessageService:
         failed = 0
         for destination in snapshot:
             try:
-                result = await self.message_service.queue_message(
-                    destination.telegram_chat_id,
-                    text=text,
-                    actor=actor,
-                    batch_id=batch_id,
-                )
+                if source_chat_id is not None and source_message_id is not None:
+                    result = await self.message_service.queue_forward(
+                        destination.telegram_chat_id,
+                        source_chat_id=source_chat_id,
+                        source_message_id=source_message_id,
+                        actor=actor,
+                        batch_id=batch_id,
+                    )
+                else:
+                    result = await self.message_service.queue_message(
+                        destination.telegram_chat_id,
+                        text=text,
+                        actor=actor,
+                        batch_id=batch_id,
+                    )
             except (ValueError, OSError):
                 failed += 1
                 logger.exception(

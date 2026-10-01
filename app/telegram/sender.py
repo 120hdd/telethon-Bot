@@ -6,7 +6,7 @@ from typing import Protocol
 from telethon import TelegramClient
 
 from app.models import MessageJob
-from app.telegram.errors import ClassifiedTelegramError, classify_telegram_error
+from app.telegram.errors import ClassifiedTelegramError, ErrorCategory, classify_telegram_error
 
 CONTROL_MESSAGE_LIMIT = 3800
 logger = logging.getLogger(__name__)
@@ -52,9 +52,39 @@ class TelegramSender:
             )
 
     async def send(self, job: MessageJob) -> int:
-        self._ensure_mutation_allowed("send_file" if job.media_path is not None else "send_message")
+        operation = (
+            "forward_messages"
+            if job.source_message_id is not None
+            else ("send_file" if job.media_path is not None else "send_message")
+        )
+        self._ensure_mutation_allowed(operation)
         try:
-            if job.media_path is not None:
+            if job.source_message_id is not None:
+                source = await self._client.get_messages(
+                    job.source_chat_id, ids=job.source_message_id
+                )
+                if source is None:
+                    raise ClassifiedTelegramError(
+                        ErrorCategory.SOURCE_ERROR,
+                        "ForwardSourceMissing",
+                        "Forward source is missing or was deleted from Saved Messages.",
+                    )
+                if getattr(source, "noforwards", False):
+                    raise ClassifiedTelegramError(
+                        ErrorCategory.SOURCE_ERROR,
+                        "ForwardSourceProtected",
+                        "Forward source is protected and cannot be forwarded.",
+                    )
+                message = await self._client.forward_messages(
+                    job.destination_chat_id, job.source_message_id, from_peer=job.source_chat_id
+                )
+                if message is None:
+                    raise ClassifiedTelegramError(
+                        ErrorCategory.SOURCE_ERROR,
+                        "ForwardSourceMissing",
+                        "Telegram did not return a forwarded message; source may be unavailable.",
+                    )
+            elif job.media_path is not None:
                 message = await self._client.send_file(
                     job.destination_chat_id,
                     str(job.media_path),

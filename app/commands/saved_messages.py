@@ -48,6 +48,10 @@ class SavedCommandKind(StrEnum):
     GROUP_SET_SHOW = "groupset_show"
     GROUP_SET_DELETE = "groupset_delete"
     SEND_SET = "sendset"
+    FORWARD = "forward"
+    FORWARD_MULTI = "forwardmulti"
+    FORWARD_SET = "forwardset"
+    FORWARD_ALL = "forwardall"
     BATCH = "batch"
 
 
@@ -135,6 +139,17 @@ def parse_saved_command(raw_text: str) -> SavedCommand | None:
             )
     if name == "/send" and len(parts) == 2 and body:
         return SavedCommand(SavedCommandKind.SEND, argument=parts[1], text=body)
+    if name == "/forward" and len(parts) == 2 and not body:
+        return SavedCommand(SavedCommandKind.FORWARD, argument=parts[1])
+    if name == "/forwardmulti" and len(parts) == 2 and not body:
+        targets = tuple(item.strip() for item in parts[1].split(",") if item.strip())
+        if not targets:
+            raise ValueError("Use /forwardmulti GROUP1,GROUP2 as a reply.")
+        return SavedCommand(SavedCommandKind.FORWARD_MULTI, targets=targets)
+    if name == "/forwardset" and len(parts) == 2 and not body:
+        return SavedCommand(SavedCommandKind.FORWARD_SET, argument=parts[1])
+    if name == "/forwardall" and len(parts) == 1 and not body:
+        return SavedCommand(SavedCommandKind.FORWARD_ALL)
     if name == "/sendall":
         inline = header[len(parts[0]) :]
         return SavedCommand(SavedCommandKind.SEND_ALL, text=_message_from_tail(inline, body))
@@ -276,6 +291,13 @@ Bulk and Group Sets:
 /sendset NAME MESSAGE - queue all currently eligible members
 /batch BATCH_ID - show delivery status for a bulk batch
 
+Reply to a forwarded message in Saved Messages:
+/forward GROUP - native forward to one allowed group
+/forwardmulti GROUP1,GROUP2 - native forward to selected groups
+/forwardset NAME - native forward to a saved set
+/forwardall - native forward to every allowed group
+Forwarded messages alone never authorize delivery. Keep the source in Saved Messages.
+
 Dot-prefixed forms such as .sendall remain supported. Bulk delivery uses the normal
 durable queue, sequential worker, rate limiter, retries, and dry-run behavior.
 """
@@ -331,7 +353,56 @@ class SavedMessagesController:
             if command.kind == SavedCommandKind.LOGS_STOP:
                 response = await self._stop_log_stream()
             else:
-                response = await self.execute(command)
+                if command.kind in {
+                    SavedCommandKind.FORWARD,
+                    SavedCommandKind.FORWARD_MULTI,
+                    SavedCommandKind.FORWARD_SET,
+                    SavedCommandKind.FORWARD_ALL,
+                }:
+                    reply_id = getattr(getattr(event, "message", None), "reply_to_msg_id", None)
+                    if not reply_id:
+                        raise ValueError("Reply to a forwarded message in Saved Messages.")
+                    source = await self.client.get_messages("me", ids=reply_id)
+                    if source is None:
+                        raise ValueError("Forward source is missing or was deleted.")
+                    if getattr(source, "fwd_from", None) is None:
+                        raise ValueError("Reply to a forwarded message in Saved Messages.")
+                    if getattr(source, "noforwards", False):
+                        raise ValueError("This message is protected and cannot be forwarded.")
+                    media = getattr(source, "media", None)
+                    document = getattr(media, "document", None)
+                    mime = getattr(document, "mime_type", "") or ""
+                    special_attributes = {
+                        "DocumentAttributeSticker",
+                        "DocumentAttributeAnimated",
+                        "DocumentAttributeAudio",
+                    }
+                    has_special_attribute = any(
+                        type(attribute).__name__ in special_attributes
+                        or bool(getattr(attribute, "round_message", False))
+                        for attribute in (getattr(document, "attributes", None) or ())
+                    )
+                    supported = (
+                        (
+                            getattr(source, "message", None)
+                            and (media is None or type(media).__name__ == "MessageMediaWebPage")
+                        )
+                        or getattr(media, "photo", None)
+                        or (
+                            document is not None
+                            and not mime.startswith("audio/")
+                            and not has_special_attribute
+                        )
+                    )
+                    if not supported:
+                        raise ValueError(
+                            "Only text, photos, videos, and documents can be forwarded."
+                        )
+                    response = await self.execute(
+                        command, source_chat_id=self.account_id, source_message_id=reply_id
+                    )
+                else:
+                    response = await self.execute(command)
         except (ValueError, NotFoundError) as exc:
             response = f"failed\nreason: {exc}"
         except ClassifiedTelegramError as exc:
@@ -347,7 +418,72 @@ class SavedMessagesController:
         except ClassifiedTelegramError as exc:
             logger.warning("control_reply_failed", extra={"exception_type": exc.error_type})
 
-    async def execute(self, command: SavedCommand) -> str:
+    async def execute(
+        self,
+        command: SavedCommand,
+        *,
+        source_chat_id: int | None = None,
+        source_message_id: int | None = None,
+    ) -> str:
+        if command.kind in {
+            SavedCommandKind.FORWARD,
+            SavedCommandKind.FORWARD_MULTI,
+            SavedCommandKind.FORWARD_SET,
+            SavedCommandKind.FORWARD_ALL,
+        }:
+            if source_chat_id is None or source_message_id is None:
+                raise ValueError("Reply to a forwarded message in Saved Messages.")
+            if command.kind == SavedCommandKind.FORWARD:
+                assert command.argument is not None
+                result = await self.message_service.queue_forward(
+                    command.argument,
+                    source_chat_id=source_chat_id,
+                    source_message_id=source_message_id,
+                )
+                return (
+                    f"forward queued: {0 if result.duplicate else 1}\n"
+                    f"skipped: {int(result.duplicate)}\nfailed: 0\njob: {result.job.uuid}"
+                )
+            if command.kind == SavedCommandKind.FORWARD_MULTI:
+                resolution = await self.target_resolver.resolve_targets(command.targets)
+                if resolution.errors:
+                    return (
+                        "failed\ninvalid targets: "
+                        + ", ".join(
+                            f"{item.reference} ({item.reason})" for item in resolution.errors
+                        )
+                        + f"\nqueued: 0\nskipped: 0\nfailed: {len(resolution.errors)}"
+                    )
+                destinations = resolution.destinations
+                requested = len(command.targets)
+                duplicates = resolution.duplicates
+                skipped = 0
+            elif command.kind == SavedCommandKind.FORWARD_SET:
+                assert command.argument is not None
+                snapshot = await self.group_set_service.snapshot(command.argument)
+                destinations = snapshot.eligible
+                requested = len(snapshot.members)
+                duplicates = snapshot.duplicates
+                skipped = snapshot.disabled + snapshot.missing
+            else:
+                resolution = await self.target_resolver.allowed_groups()
+                destinations = resolution.destinations
+                requested = len(destinations) + resolution.duplicates + len(resolution.errors)
+                duplicates = resolution.duplicates
+                skipped = len(resolution.errors)
+            if not destinations:
+                return f"No eligible groups.\nqueued: 0\nskipped: {skipped}\nfailed: 0"
+            result = await self.bulk_service.enqueue_bulk(
+                destinations,
+                text="",
+                batch_type=command.kind.value,
+                requested=requested,
+                duplicates=duplicates,
+                skipped=skipped,
+                source_chat_id=source_chat_id,
+                source_message_id=source_message_id,
+            )
+            return self._bulk_summary("Forward queued", result, targets=True)
         if command.kind == SavedCommandKind.HELP:
             return HELP_TEXT
         if command.kind == SavedCommandKind.STATUS:

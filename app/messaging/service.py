@@ -34,6 +34,55 @@ class MessageService:
         self.repository = repository
         self.settings = settings
 
+    async def queue_forward(
+        self,
+        destination_reference: str | int,
+        *,
+        source_chat_id: int,
+        source_message_id: int,
+        actor: str = "saved_messages",
+        batch_id: str | None = None,
+    ) -> QueueResult:
+        destination = await self.repository.resolve_destination(destination_reference)
+        if destination is None:
+            raise NotFoundError(
+                f"Unknown destination: {destination_reference}. Refresh groups first."
+            )
+        if not destination.enabled or not destination.can_send:
+            raise ValueError(
+                f'Destination "{destination.title}" is not allowed to receive messages.'
+            )
+        if source_chat_id <= 0 or source_message_id <= 0:
+            raise ValueError("Forward source is invalid.")
+        key = build_idempotency_key(
+            destination.telegram_chat_id,
+            "",
+            "",
+            "IMMEDIATE",
+            f"forward={source_chat_id}:{source_message_id}",
+        )
+        job = NewJob(
+            uuid=str(uuid.uuid4()),
+            destination_chat_id=destination.telegram_chat_id,
+            text=None,
+            media_path=None,
+            parse_mode=None,
+            disable_link_preview=False,
+            scheduled_at=to_db_time(utc_now()),
+            status=JobStatus.DRY_RUN if self.settings.dry_run else JobStatus.PENDING,
+            max_attempts=self.settings.max_queue_attempts,
+            idempotency_key=key,
+            requested_by=actor,
+            batch_id=batch_id,
+            source_chat_id=source_chat_id,
+            source_message_id=source_message_id,
+        )
+        try:
+            return QueueResult(await self.repository.create_job(job, actor=actor))
+        except DuplicateJobError as exc:
+            assert exc.existing is not None
+            return QueueResult(exc.existing, duplicate=True)
+
     async def queue_message(
         self,
         destination_reference: str | int,

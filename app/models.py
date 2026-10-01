@@ -92,6 +92,8 @@ class NewJob:
     idempotency_key: str
     requested_by: str
     batch_id: str | None = None
+    source_chat_id: int | None = None
+    source_message_id: int | None = None
 
 
 @dataclass(slots=True, frozen=True)
@@ -118,6 +120,8 @@ class MessageJob:
     idempotency_key: str
     requested_by: str
     batch_id: str | None
+    source_chat_id: int | None = None
+    source_message_id: int | None = None
 
 
 @dataclass(slots=True, frozen=True)

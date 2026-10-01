@@ -18,6 +18,7 @@ class ErrorCategory(StrEnum):
     PERMISSION_ERROR = "PERMISSION_ERROR"
     DESTINATION_ERROR = "DESTINATION_ERROR"
     CONTENT_ERROR = "CONTENT_ERROR"
+    SOURCE_ERROR = "SOURCE_ERROR"
     UNKNOWN_RPC_ERROR = "UNKNOWN_RPC_ERROR"
 
 
@@ -110,6 +111,12 @@ def authorization_error_message(exc: BaseException) -> str | None:
 
 def classify_telegram_error(exc: BaseException) -> ClassifiedTelegramError:
     error_type = type(exc).__name__
+    if error_type in {"MessageIdInvalidError", "ChatForwardsRestrictedError"}:
+        return ClassifiedTelegramError(
+            ErrorCategory.SOURCE_ERROR,
+            error_type,
+            "Forward source is missing, inaccessible, or protected by Telegram.",
+        )
     if isinstance(exc, errors.SlowModeWaitError):
         return ClassifiedTelegramError(
             ErrorCategory.RATE_LIMITED,

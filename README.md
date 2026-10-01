@@ -279,6 +279,10 @@ message text
 /groupset show customers
 /groupset delete customers
 /sendset customers سلام
+/forward family
+/forwardmulti family,work
+/forwardset customers
+/forwardall
 /batch <batch-uuid>
 /schedule work 2026-09-16 14:30
 message text
@@ -300,6 +304,14 @@ Telegram peer IDs are accepted, whitespace around commas is ignored, and aliases
 the same group are deduplicated by canonical peer ID. `/sendall` snapshots every currently allowed,
 sendable group. Both commands create one normal queue job per destination and correlate those jobs
 with a batch UUID; `/batch` shows the current per-job outcomes.
+
+To forward, first forward one text, photo, video, or document into Saved Messages, then reply to
+that message with one of the `/forward` commands above. The forwarded message alone sends nothing.
+The reply command must be freshly written by the account owner. Each job keeps the Saved Messages
+chat ID and message ID, and the worker uses Telegram native forwarding. Keep the source accessible
+until delivery finishes. A deleted or protected source fails clearly; there is no copy fallback.
+The response reports queued, skipped, duplicate, and failed counts. Existing allowlists, pacing,
+idempotency, and batch status apply.
 
 Group Sets are persistent, case-insensitively named collections (`1-64` letters, numbers, `_`, or
 `-`). Membership stores canonical Telegram peer IDs, so title, username, and alias changes do not
